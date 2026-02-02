@@ -17,8 +17,4 @@
     <ProjectReference Include="..\..\Psxbox.Streams\Psxbox.Streams.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <ProjectReference Include="..\Psxbox.Streams\Psxbox.Streams.csproj" />
-  </ItemGroup>
-
 </Project>
