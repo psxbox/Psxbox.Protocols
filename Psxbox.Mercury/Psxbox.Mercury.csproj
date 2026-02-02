@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\Psxbox.Streams\Psxbox.Streams.csproj" />
+    <ProjectReference Include="..\..\Psxbox.Streams\Psxbox.Streams.csproj" />
   </ItemGroup>
 
   <PropertyGroup>
