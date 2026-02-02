@@ -1,0 +1,165 @@
+{
+  "id": 3,
+  "name": "ROC",
+  "description": "ROC FloBoss",
+  "deviceType": "ROC",
+  "settingSplitter": "default",
+  "reader": "ROC",
+  "settings": [
+    {
+      "cron": "0 0 0/1 * * ?",
+      "telemetry": [
+        {
+          "reading": "current",
+          "tags": [
+            {
+              "name": "Pressure",
+              "point": 7,
+              "logic": 0,
+              "param": 52,
+              "valueType": "float",
+              "byteOrder": "0123"
+            },
+            {
+              "name": "Temperature",
+              "point": 7,
+              "logic": 0,
+              "param": 53,
+              "valueType": "float",
+              "byteOrder": "0123"
+            },
+            {
+              "name": "Instant Flow",
+              "point": 10,
+              "logic": 0,
+              "param": 3,
+              "valueType": "float",
+              "byteOrder": "0123"
+            },
+            {
+              "name": "Flow Today",
+              "point": 47,
+              "logic": 0,
+              "param": 36,
+              "valueType": "float",
+              "byteOrder": "0123"
+            },
+            {
+              "name": "Flow Yesterday",
+              "point": 47,
+              "logic": 0,
+              "param": 37,
+              "valueType": "float",
+              "byteOrder": "0123"
+            },
+            {
+              "name": "Flow Month",
+              "point": 47,
+              "logic": 0,
+              "param": 38,
+              "valueType": "float",
+              "byteOrder": "0123"
+            },
+            {
+              "name": "Flow Prev Month",
+              "point": 47,
+              "logic": 0,
+              "param": 39,
+              "valueType": "float",
+              "byteOrder": "0123"
+            },
+            {
+              "name": "Flow Accumulated",
+              "point": 47,
+              "logic": 0,
+              "param": 40,
+              "valueType": "float",
+              "byteOrder": "0123"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "cron": "0 0 0 * * ?",
+      "telemetry": {
+        "reading": "history",
+        "typeOfHistory": "daily",
+        "tags": [
+          {
+            "name": "Day Minutes today",
+            "point": 47,
+            "logic": 0,
+            "param": 41,
+            "valueType": "float",
+            "byteOrder": "0123"
+          },
+          {
+            "name": "Day DP/FR",
+            "point": 46,
+            "logic": 0,
+            "param": 51,
+            "valueType": "float",
+            "byteOrder": "0123"
+          },
+          {
+            "name": "Day Static Pressure",
+            "point": 46,
+            "logic": 0,
+            "param": 52,
+            "valueType": "float",
+            "byteOrder": "0123"
+          },
+          {
+            "name": "Day Temperature",
+            "point": 46,
+            "logic": 0,
+            "param": 53,
+            "valueType": "float",
+            "byteOrder": "0123"
+          },
+          {
+            "name": "Day Flow Rate",
+            "point": 47,
+            "logic": 0,
+            "param": 0,
+            "valueType": "float",
+            "byteOrder": "0123"
+          },
+          {
+            "name": "Day Energy Rate",
+            "point": 47,
+            "logic": 0,
+            "param": 1,
+            "valueType": "float",
+            "byteOrder": "0123"
+          },
+          {
+            "name": "Day Base Density",
+            "point": 28,
+            "logic": 0,
+            "param": 2,
+            "valueType": "float",
+            "byteOrder": "0123"
+          },
+          {
+            "name": "Day N2",
+            "point": 7,
+            "logic": 0,
+            "param": 23,
+            "valueType": "float",
+            "byteOrder": "0123"
+          },
+          {
+            "name": "Day CO2",
+            "point": 7,
+            "logic": 0,
+            "param": 24,
+            "valueType": "float",
+            "byteOrder": "0123"
+          }
+        ]
+      }
+    }
+  ]
+}

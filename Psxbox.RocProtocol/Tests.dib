@@ -1,0 +1,75 @@
+#!meta
+
+{"kernelInfo":{"defaultKernelName":"csharp","items":[{"aliases":[],"languageName":"csharp","name":"csharp"}]}}
+
+#!csharp
+
+#r "nuget: System.Data.HashFunction.CRC"
+using System.Data.HashFunction.CRC;
+
+ICRC _crc = CRCFactory.Instance.Create(CRCConfig.ARC);
+
+var payload = new byte[] {0xF0, 0xF0, 0x03, 0x01, 0xB4, 0x04, 0x01, 0x03, 0x00, 0x0E, 0xCB, 0x5E};
+
+var hash = _crc.ComputeHash(payload[0..^2]);
+Console.WriteLine(hash.AsHexString(true));
+display(hash.Hash);
+display(payload[^2..]);
+display(hash.Hash.SequenceEqual(payload[^2..]));
+
+#!csharp
+
+#r ".\bin\Debug\net8.0\Psxbox.RocProtocol.dll"
+using Psxbox.RocProtocol;
+
+ROCAddress a = new ROCAddress(0xF0, 0xF0);
+ROCAddress b = new ROCAddress(1, 3);
+ROCAddress c = new ROCAddress(1, 2);
+
+display(a.Equals(c));
+display(a.ToString());
+
+#!csharp
+
+display(BitConverter.ToInt16(new byte[] { 0x2f, 0 }));
+display(BitConverter.ToSingle(new byte[] { 0x84, 0xCA, 0xCD, 0x3C }));
+
+#!csharp
+
+#r "nuget: MQTTnet"
+#r "nuget: System.Data.HashFunction.CRC"
+#r ".\bin\Debug\net8.0\Psxbox.Streams.dll"
+#r ".\bin\Debug\net8.0\Psxbox.RocProtocol.dll"
+using MQTTnet;
+using MQTTnet.Client;
+using Psxbox.Streams;
+using Psxbox.RocProtocol;
+
+var mqttFactory = new MqttFactory();
+var mqttClient = mqttFactory.CreateMqttClient();
+var mqttClientOptions = new MqttClientOptionsBuilder()
+    .WithTcpServer("pokazaniya.uz", 11883)
+    .WithCredentials("bluestar", "aa11bb22")
+    .WithCleanSession()
+    .Build();
+
+await mqttClient.ConnectAsync(mqttClientOptions);
+if (mqttClient.IsConnected) display("Mqtt connected");
+
+IStream stream = new MqttStream(mqttClient, "869300037575986/up", "869300037575986/down"); 
+
+var protocol = new RocProtocol();
+var master = new RocMaster(stream, protocol);
+
+var addr = new RocDeviceSettings();
+
+// var responce = protocol.RequestOpcode120(addr);
+// display(responce)
+
+// var responce = master.GetHistoryDateTimes(addr, 0, 254, 60, 840);
+// IEnumerable<float> responce = master.GetHistoryValues<float>(addr, 0, 2, 60, 840);
+var responce = master.GetHistoryParams(addr);
+foreach(var dt in responce)
+    Console.WriteLine(dt);
+
+mqttClient.Dispose();
