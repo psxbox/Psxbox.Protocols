@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using Microsoft.VisualBasic;
 using Psxbox.Streams;
 using Psxbox.Utils;
 

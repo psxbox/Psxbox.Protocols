@@ -1,6 +1,5 @@
 ﻿using Microsoft.Extensions.Logging;
 using Psxbox.Streams;
-using Psxbox.Utils;
 using Psxbox.Utils.Helpers;
 using System.Globalization;
 

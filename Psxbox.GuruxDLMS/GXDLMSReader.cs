@@ -41,13 +41,9 @@ using Gurux.DLMS.Objects.Enums;
 using Gurux.DLMS.Secure;
 using Gurux.Net;
 using Gurux.Serial;
-using System;
-using System.Collections.Generic;
 using System.Diagnostics;
-using System.IO;
 using System.IO.Ports;
 using System.Text;
-using System.Threading;
 
 namespace Gurux.DLMS.Reader
 {
