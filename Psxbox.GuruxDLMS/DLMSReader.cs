@@ -171,7 +171,7 @@ namespace Gurux.DLMS.Reader
             {
                 AllData = false,
                 Eop = (byte)0x0A,
-                WaitTime = WaitTime * 1000
+                WaitTime = WaitTime
             };
             string data = (char)0x01 + "B0" + (char)0x03 + "\r\n";
             await SendAsync(System.Text.Encoding.ASCII.GetBytes(data)).ConfigureAwait(false);
@@ -199,7 +199,7 @@ namespace Gurux.DLMS.Reader
             {
                 AllData = false,
                 Eop = Terminator,
-                WaitTime = WaitTime * 1000
+                WaitTime = WaitTime
             };
 
             await _semaphore.WaitAsync(ct).ConfigureAwait(false);
@@ -334,7 +334,7 @@ namespace Gurux.DLMS.Reader
                 foreach (byte[] it in Client.AARQRequest())
                 {
                     if (Trace > TraceLevel.Info)
-                        Console.WriteLine("Send AARQ request", GXCommon.ToHex(it, true));
+                        Console.WriteLine("Send AARQ request " + GXCommon.ToHex(it, true));
                     reply.Clear();
                     await ReadDataBlockAsync(it, reply, ct).ConfigureAwait(false);
                 }
@@ -399,7 +399,7 @@ namespace Gurux.DLMS.Reader
                             throw new Exception("Failed to receive reply from the device in given time.");
                         if (p.Eop == null)
                             p.Count = 1;
-                        System.Diagnostics.Debug.WriteLine("Data send failed. Try to resend " + pos.ToString() + "/3");
+                        Debug.WriteLine("Data send failed. Try to resend " + pos.ToString() + "/3");
                     }
                 }
                 rd = new GXByteBuffer(p.Reply);
@@ -420,9 +420,8 @@ namespace Gurux.DLMS.Reader
                                 }
                                 else
                                 {
-                                    string xml;
                                     GXDLMSTranslator t = new GXDLMSTranslator(TranslatorOutputType.SimpleXml);
-                                    t.DataToXml(notify.Data, out xml);
+                                    t.DataToXml(notify.Data, out string xml);
                                     OnNotification?.Invoke(xml);
                                     Console.WriteLine(xml);
                                 }
@@ -438,7 +437,7 @@ namespace Gurux.DLMS.Reader
                                 throw new Exception("Failed to receive reply from the device in given time.");
                             p.Reply = null;
                             await SendAsync(data).ConfigureAwait(false);
-                            System.Diagnostics.Debug.WriteLine("Data send failed. Try to resend " + pos.ToString() + "/3");
+                            Debug.WriteLine("Data send failed. Try to resend " + pos.ToString() + "/3");
                         }
                         rd.Set(p.Reply);
                     }
@@ -530,8 +529,8 @@ namespace Gurux.DLMS.Reader
                 await ReadDataBlockAsync(it, reply, ct).ConfigureAwait(false);
                 if (!reply.IsMoreData)
                 {
-                    if (reply.Value is IEnumerable<object>)
-                        values.AddRange((IEnumerable<object>)reply.Value);
+                    if (reply.Value is IEnumerable<object> enumerable)
+                        values.AddRange(enumerable);
                 }
                 reply.Clear();
             }
