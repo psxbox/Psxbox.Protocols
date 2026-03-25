@@ -640,19 +640,7 @@ namespace Gurux.DLMS.Reader
         {
             if (_stream != null && Client != null)
             {
-                try
-                {
-                    if (Trace > TraceLevel.Info)
-                        Console.WriteLine("Disconnecting from the meter.");
-                    try
-                    {
-                        await ReleaseAsync().ConfigureAwait(false);
-                    }
-                    catch (Exception) { }
-                    GXReplyData reply = new GXReplyData();
-                    await ReadDLMSPacketAsync(Client.DisconnectRequest(), reply).ConfigureAwait(false);
-                }
-                catch { }
+                await DisconnectAsync().ConfigureAwait(false);
                 await _stream.CloseAsync().ConfigureAwait(false);
             }
         }
