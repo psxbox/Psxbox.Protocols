@@ -8,8 +8,8 @@
 
   <ItemGroup>
     <PackageReference Include="Gurux.Common" Version="8.4.2503.602" />
-    <PackageReference Include="Gurux.DLMS" Version="9.0.2508.2201" />
-    <PackageReference Include="Gurux.Net" Version="8.4.2503.1001" />
+    <PackageReference Include="Gurux.DLMS" Version="9.0.2603.3001" />
+    <PackageReference Include="Gurux.Net" Version="8.4.2604.201" />
     <PackageReference Include="Gurux.Serial" Version="8.4.2503.603" />
   </ItemGroup>
 
