@@ -195,7 +195,7 @@ public class ReaderCE6850M(IStream stream,
     public Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(ushort daysAgo, short fromRecord,
         string func)
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("Use GetLoadProfiles with DateTimeOffset parameter instead");
     }
 
     public async Task<(double a, double b, double c, double sum)> GetPowerA()
@@ -239,7 +239,7 @@ public class ReaderCE6850M(IStream stream,
 
     public Task<IEnumerable<(ushort recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("This function is not implemented in CE6850M reader. Please refer to the manual for more details");
     }
 
     public async Task<(double a, double b, double c)> GetVoltage()
@@ -335,21 +335,21 @@ public class ReaderCE6850M(IStream stream,
 
     public string[] GetEndOfYearFunctions()
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("This function is not implemented in CE6850M reader. Please refer to the manual for more details");
     }
 
     public string[] GetCurrentDayFunctions()
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("This function is not implemented in CE6850M reader. Please refer to the manual for more details");
     }
 
     public string[] GetCurrentMonthFunctions()
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("This function is not implemented in CE6850M reader. Please refer to the manual for more details");
     }
 
     public string[] GetCurrentYearFunctions()
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("This function is not implemented in CE6850M reader. Please refer to the manual for more details");
     }
 }

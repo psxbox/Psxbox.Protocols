@@ -80,13 +80,13 @@ public class ReaderCE303(IStream stream,
 
     public Task<IEnumerable<string>> GetListOfArchiveTimes(string func)
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("This function is not implemented in CE303 reader. Please refer to the manual for more details");
     }
 
     public Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(ushort daysAgo, short fromRecord,
         string func)
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("This function is not implemented in CE303 reader. Please refer to the manual for more details");
     }
 
     public async Task<(double a, double b, double c, double sum)> GetPowerA()
@@ -110,12 +110,12 @@ public class ReaderCE303(IStream stream,
 
     public Task<(double a, double b, double c, double sum)> GetPowerS()
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("This function is not implemented in CE303 reader. Please refer to the manual for more details");
     }
 
     public Task<IEnumerable<(ushort recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("This function is not implemented in CE303 reader. Please refer to the manual for more details");
     }
 
     public async Task<(double a, double b, double c)> GetVoltage()
@@ -161,13 +161,13 @@ public class ReaderCE303(IStream stream,
     public Task<(double sum, double t1, double t2, double t3, double t4)> GetActiveEnergyOut(
         bool forCurrentPeriod = false, string period = "day")
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("This function is not implemented in CE303 reader. Please refer to the manual for more details");
     }
 
     public async virtual Task<(double sum, double t1, double t2, double t3, double t4)> GetReactiveEnergyOut(
         bool forCurrentPeriod = false, string period = "day")
     {
-        logger?.LogDebug("Getting accumulated active power");
+        logger?.LogDebug("Getting accumulated reactive power");
         var values = await GetEnergyValues(CE303Function.ET0QI.ToString());
 
         return values;
@@ -234,21 +234,21 @@ public class ReaderCE303(IStream stream,
 
     public string[] GetEndOfYearFunctions()
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("This function is not implemented in CE303 reader. Please refer to the manual for more details");
     }
 
     public string[] GetCurrentDayFunctions()
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("This function is not implemented in CE303 reader. Please refer to the manual for more details");
     }
 
     public string[] GetCurrentMonthFunctions()
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("This function is not implemented in CE303 reader. Please refer to the manual for more details");
     }
 
     public string[] GetCurrentYearFunctions()
     {
-        throw new NotImplementedException();
+        throw new NotImplementedException("This function is not implemented in CE303 reader. Please refer to the manual for more details");
     }
 }
