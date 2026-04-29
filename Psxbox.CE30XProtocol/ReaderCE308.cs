@@ -1,5 +1,6 @@
 ﻿using Microsoft.Extensions.Logging;
 using Psxbox.Streams;
+using Psxbox.Utils;
 using Psxbox.Utils.Helpers;
 using System.Globalization;
 
@@ -11,7 +12,7 @@ public class ReaderCE308(IStream stream,
                          ILogger? logger = null) : BaseReader(stream, id, password, logger), IReader
 {
     public const string READER_TYPE = "CE308";
-   
+
 
     public async Task<DateTimeOffset> GetWatch()
     {
@@ -92,6 +93,8 @@ public class ReaderCE308(IStream stream,
         return (values[0], values[1], values[2]);
     }
 
+    private Dictionary<ArchiveType, List<DateOnly>> archiveTimesCache = new();
+
     public async Task<(string date, double tSum, double t1, double t2, double t3, double t4)> GetEndOfPeriod(ushort ago,
         string func, params string[] args)
     {
@@ -100,17 +103,50 @@ public class ReaderCE308(IStream stream,
         // ? Agar args[0] == "0" bo'lsa davr oxiridagi umumiy energiya qiymati
         // ? agar args[0] == "1" bo'lsa, davr ichidagi to'plangan energiya qiymati
         // ? Agar args[0] bo'lmasa, "0" deb qabul qilinadi  
-        var accPeriod = args.Length > 0 ? args[0] : "0"; 
+        var accPeriod = args.Length > 0 ? args[0] : "0";
+
+        var archiveIndex = ago;
+        var archiveType = GetArchiveType(func);
+
+        if (ago > 0)
+        {
+            // Getting list of archive times to check if requested period is available. If not, return empty result
+            var archiveTimesFunc = archiveType switch
+            {
+                ArchiveType.Day => CE308Function.LST01.ToString(),
+                ArchiveType.Month => CE308Function.LST02.ToString(),
+                ArchiveType.Year => CE308Function.LST03.ToString(),
+                _ => throw new ArgumentOutOfRangeException()
+            };
+
+            if (!archiveTimesCache.ContainsKey(archiveType))
+            {
+                var archiveTimes = await GetListOfArchiveTimes(archiveTimesFunc);
+                archiveTimesCache[archiveType] = ParseArchiveTimes(archiveTimes, archiveType);
+            }
+
+            var requestedDate = GetRequestDate(archiveType, ago);
+
+            var indexOfRequestedDate = archiveTimesCache[archiveType].IndexOf(requestedDate);
+
+            if (indexOfRequestedDate == -1)
+            {
+                logger?.LogWarning("Requested date {requestedDate} is not available in archive times for {func}", requestedDate, func);
+                return (string.Empty, default, default, default, default, default);
+            }
+
+            archiveIndex = (ushort)indexOfRequestedDate;
+        }
 
         string responseStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX],
-                    $"{ago}.{accPeriod}", "F");
+                    $"{archiveIndex}.{accPeriod}", "F");
         string[] values = CommonIEC61107.ParseResponseValues(responseStr).ToArray();
 
         if (values.Length == 0 || values[0] == "ERR18") return (string.Empty, default, default, default, default, default);
 
         try
         {
-            return ParseEndOfPeriod(values);
+            return ParseEndOfPeriod(values, archiveType);
         }
         catch (Exception ex)
         {
@@ -119,7 +155,45 @@ public class ReaderCE308(IStream stream,
         }
     }
 
-    protected virtual (string date, double tSum, double t1, double t2, double t3, double t4) ParseEndOfPeriod(string[] values)
+    private DateOnly GetRequestDate(ArchiveType archiveType, ushort ago)
+    {
+        var today = DateTime.Now.StartOfADay();
+        var requestedDate = archiveType switch
+        {
+            ArchiveType.Day => today.AddDays(-ago),
+            ArchiveType.Month => today.AddMonths(-ago).StartOfAMonth(),
+            ArchiveType.Year => today.AddYears(-ago).StartOfAYear(),
+            _ => throw new ArgumentOutOfRangeException(nameof(archiveType), "Invalid archive type")
+        };
+        return DateOnly.FromDateTime(requestedDate);
+    }
+
+    protected virtual List<DateOnly> ParseArchiveTimes(IEnumerable<string> archiveTimes, ArchiveType archiveType)
+    {
+        // Archive times are in format daily = "16.09.25", monthly = "00.09.25", yearly = "00.00.25", so we need to parse them accordingly
+        return archiveTimes.Select(at => ParseArchiveTime(at, archiveType)).ToList();
+    }
+
+    protected virtual DateOnly ParseArchiveTime(string archiveTimeStr, ArchiveType archiveType)
+    {
+        return archiveType switch
+        {
+            ArchiveType.Day => DateOnly.TryParseExact(archiveTimeStr, "dd.MM.yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dayDate) ? dayDate : default,
+            ArchiveType.Month => DateOnly.TryParseExact(archiveTimeStr, "00.MM.yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var monthDate) ? monthDate : default,
+            ArchiveType.Year => DateOnly.TryParseExact(archiveTimeStr, "00.00.yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var yearDate) ? yearDate : default,
+            _ => DateOnly.TryParseExact(archiveTimeStr, "dd.MM.yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) ? date : default,
+        };
+    }
+
+    private ArchiveType GetArchiveType(string func)
+    {
+        if (GetCurrentDayFunctions().Contains(func)) return ArchiveType.Day;
+        if (GetCurrentMonthFunctions().Contains(func)) return ArchiveType.Month;
+        if (GetCurrentYearFunctions().Contains(func)) return ArchiveType.Year;
+        throw new ArgumentException("Invalid function for end of period", nameof(func));
+    }
+
+    protected virtual (string date, double tSum, double t1, double t2, double t3, double t4) ParseEndOfPeriod(string[] values, ArchiveType archiveType)
     {
         string[] dateAndSum = values[0].Split(',');
         string date = dateAndSum[0];
