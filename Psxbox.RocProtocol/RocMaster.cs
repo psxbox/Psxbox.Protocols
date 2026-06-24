@@ -55,9 +55,10 @@ public class RocMaster
         IEnumerable<(string name, byte point, byte logic, byte param, string valueType, string? byteOrder, int length)> parameters)
     {
         var request = parameters.Select(p => (p.point, p.logic, p.param));
-        var responce = (await rocProtocol.RequestOpcode180(rocDeviceSettings, request))[1..].ToList();
+        var responce = (await rocProtocol.RequestOpcode180(rocDeviceSettings, request))[1..];
 
         Dictionary<string, object> result = [];
+        int offset = 0;
 
         foreach (var (name, point, logic, param, valueType, byteOrder, length) in parameters)
         {
@@ -66,15 +67,15 @@ public class RocMaster
                 return result;
             }
 
-            if ((responce[0], responce[1], responce[2]) != (point, logic, param))
+            if ((responce[offset], responce[offset + 1], responce[offset + 2]) != (point, logic, param))
             {
                 throw new Exception("So'ralgan parameter kelgan parameterga mos emas!");
             }
 
-            responce.RemoveRange(0, 3);
+            offset += 3;
 
             int valueSize = valueType == "ascii" ? length : ValueUtils.GetValueSize(valueType);
-            object value = ValueUtils.ConvertValueByType(responce.Take(valueSize).ToArray().GetOrdered(byteOrder), valueType);
+            object value = ValueUtils.ConvertValueByType(responce[offset..(offset + valueSize)].GetOrdered(byteOrder), valueType);
             if (!ValueUtils.IsFinite(value))
             {
                 result.Add(name, "Infinite");
@@ -83,7 +84,7 @@ public class RocMaster
             {
                 result.Add(name, value);
             }
-            responce.RemoveRange(0, valueSize);
+            offset += valueSize;
         }
         return result;
     }

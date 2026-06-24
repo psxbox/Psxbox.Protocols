@@ -24,11 +24,14 @@ public class RocProtocol : IRocProtocol
             .. requestData,
         ];
 
-        var hashValue = _crc.ComputeHash(payload.ToArray());
-        payload.AddRange(hashValue.Hash);
+        var payloadArray = payload.ToArray();
+        var hashValue = _crc.ComputeHash(payloadArray);
+        var fullPayload = new byte[payloadArray.Length + hashValue.Hash.Length];
+        Buffer.BlockCopy(payloadArray, 0, fullPayload, 0, payloadArray.Length);
+        Buffer.BlockCopy(hashValue.Hash, 0, fullPayload, payloadArray.Length, hashValue.Hash.Length);
 
         Stream.Flush();
-        await Stream.WriteAsync(payload.ToArray());
+        await Stream.WriteAsync(fullPayload);
 
         var head = new byte[6];
         var readed = await Stream.ReadAsync(head);
@@ -65,9 +68,7 @@ public class RocProtocol : IRocProtocol
             throw new($"Javob to'liq kelmadi, kutilgan: {respDataLen}, kelgan: {readed}");
         }
 
-        List<byte> allResponce = [.. head, .. responceData];
-
-        var computedHash = _crc.ComputeHash(allResponce.ToArray()[0..^2]).Hash;
+        var computedHash = _crc.ComputeHash([.. head, .. responceData[..^2]]).Hash;
         if (!computedHash.SequenceEqual(responceData[^2..]))
         {
             throw new("CRC mos emas!");
@@ -84,12 +85,13 @@ public class RocProtocol : IRocProtocol
     public async Task<byte[]> RequestOpcode180(RocDeviceSettings rocDeviceSettings,
                                    IEnumerable<(byte point, byte logic, byte param)> parameters)
     {
+        var paramList = parameters as IList<(byte point, byte logic, byte param)> ?? parameters.ToList();
         List<byte> request =
         [
-            (byte)parameters.Count()
+            (byte)paramList.Count
         ];
 
-        foreach (var (point, logic, param) in parameters)
+        foreach (var (point, logic, param) in paramList)
         {
             request.Add(point);
             request.Add(logic);
@@ -99,7 +101,7 @@ public class RocProtocol : IRocProtocol
         var responce = await Requests(rocDeviceSettings.RocAddress, rocDeviceSettings.HostAddress,
             RocOpcode.Opcode180, request.ToArray());
 
-        if (parameters.Count() != responce[0])
+        if (paramList.Count != responce[0])
         {
             throw new("So'ralgan paramertlar soni kelgan javob bilan bir xil emas");
         }
