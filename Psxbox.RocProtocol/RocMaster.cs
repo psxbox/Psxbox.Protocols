@@ -74,7 +74,7 @@ public class RocMaster
 
             offset += 3;
 
-            int valueSize = valueType == "ascii" ? length : ValueUtils.GetValueSize(valueType);
+            int valueSize = (valueType == "ascii" || valueType == "hex") ? length : ValueUtils.GetValueSize(valueType);
             object value = ValueUtils.ConvertValueByType(responce[offset..(offset + valueSize)].GetOrdered(byteOrder), valueType);
             if (!ValueUtils.IsFinite(value))
             {
