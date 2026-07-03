@@ -246,10 +246,99 @@ public class ReaderCE208(IStream stream,
         return result;
     }
 
-    public Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(
-        ushort daysAgo, short fromRecord, string func) => throw new NotImplementedException();
-    public Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(
-        DateTimeOffset lastReadedDate, DateTimeOffset deviceDateTime, string func) => throw new NotImplementedException();
+    /// <summary>
+    /// Profil yozuvini parse qiladi. Format: "qiymat" yoki "qiymat;bayroq".
+    /// </summary>
+    public static (double value, short flags) ParseProfileRecord(string record)
+    {
+        var parts = record.Split(';');
+        var value = double.Parse(parts[0], CultureInfo.InvariantCulture);
+        short flags = parts.Length > 1 ? short.Parse(parts[1]) : (short)0;
+        return (value, flags);
+    }
+
+    /// <summary>
+    /// Kunlik profil yozuvlari soni = 1440 / TAVER. TAVER birinchi so'rovda o'qilib keshlanadi.
+    /// </summary>
+    private async Task<int> GetRecordsPerDay()
+    {
+        if (_recordsPerDay is int cached) return cached;
+
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.TAVER.ToString(), CommonIEC61107.DEFAULT_END);
+        var taver = int.Parse(CommonIEC61107.ParseResponseValues(responceStr).First(), CultureInfo.InvariantCulture);
+        _recordsPerDay = 1440 / taver;
+        logger?.LogDebug("TAVER = {taver} min, records per day = {records}", taver, _recordsPerDay);
+        return _recordsPerDay.Value;
+    }
+
+    public async Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(ushort daysAgo,
+        short fromRecord, string func)
+    {
+        logger?.LogDebug("Getting load profiles {func}. Days ago: {ago}", func, daysAgo);
+
+        var recordsPerDay = await GetRecordsPerDay();
+        int recCount = recordsPerDay - (fromRecord - 1);
+        var date = DateOnly.FromDateTime(DateTime.Today.AddDays(-daysAgo));
+
+        return await ReadProfileRecords(func, date, fromRecord, recCount);
+    }
+
+    public async Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(
+        DateTimeOffset lastReadedDate, DateTimeOffset deviceDateTime, string func)
+    {
+        logger?.LogDebug("Getting load profiles {func}, Date: {date}, Device date: {deviceDate}",
+            func, lastReadedDate, deviceDateTime);
+
+        if (lastReadedDate > deviceDateTime)
+        {
+            throw new Exception("Oxirgi o'qilgan vaqt qurilma vaqtidan katta");
+        }
+
+        var recordsPerDay = await GetRecordsPerDay();
+        int minutesPerRecord = 1440 / recordsPerDay;
+
+        var fromRecord = (short)((lastReadedDate.Hour * 60 + lastReadedDate.Minute) / minutesPerRecord + 1);
+        int recCount = recordsPerDay - (fromRecord - 1);
+        var daysAgo = (int)(deviceDateTime.StartOfDay() - lastReadedDate.StartOfDay()).TotalDays;
+
+        if (daysAgo == 0)
+        {
+            TimeSpan timeSpan = deviceDateTime - lastReadedDate;
+            recCount = (int)timeSpan.TotalMinutes / minutesPerRecord;
+        }
+        if (recCount > recordsPerDay) recCount = recordsPerDay;
+
+        var date = DateOnly.FromDateTime(lastReadedDate.Date);
+        return await ReadProfileRecords(func, date, fromRecord, recCount);
+    }
+
+    private async Task<(string date, IEnumerable<(double, short)> data)> ReadProfileRecords(
+        string func, DateOnly date, short fromRecord, int recCount)
+    {
+        // GRAPE(dd.MM.yy,nn,kk) - javobda sana yo'q, shuning uchun so'ralgan sana qaytariladi
+        var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX],
+            date.ToString("dd.MM.yy"), fromRecord.ToString(), recCount.ToString());
+
+        var values = CommonIEC61107.ParseResponseValues(responceStr)
+            .Where(v => !string.IsNullOrWhiteSpace(v) && !v.StartsWith("ERR"))
+            .ToArray();
+
+        List<(double, short)> data = [];
+        foreach (var item in values)
+        {
+            try
+            {
+                data.Add(ParseProfileRecord(item));
+            }
+            catch (Exception ex)
+            {
+                logger?.LogError(ex, "Error parsing profile record: {item}", item);
+            }
+        }
+
+        return (date.ToString("dd.MM.yy"), data);
+    }
+
     public Task<IEnumerable<(ushort recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(
         string func) => throw new NotImplementedException();
 
