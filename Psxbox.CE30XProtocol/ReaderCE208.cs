@@ -146,6 +146,45 @@ public class ReaderCE208(IStream stream,
         bool forCurrentPeriod = false, string period = "day") =>
         throw new NotImplementedException("CE208 faqat aktiv import (A+) energiyasini o'lchaydi");
 
+    // === Rele boshqaruvi ===
+
+    public override async Task RelayOn() => await SetRelay(true);
+
+    public override async Task RelayOff() => await SetRelay(false);
+
+    private async Task SetRelay(bool on)
+    {
+        logger?.LogDebug("Setting relay: {on}", on);
+        try
+        {
+            await SendWrite(CE208Function.RCTL1.ToString(), on ? "1" : "0");
+        }
+        catch (Exception ex) when (ex.Message.Contains("ERR18"))
+        {
+            throw new Exception(
+                "Rele komandasi rad etildi (ERR18). REL_1 konfiguratsiyasida " +
+                "interfeys orqali boshqarish (bit 3) yoqilmagan bo'lishi mumkin.", ex);
+        }
+    }
+
+    public override async Task<bool> GetRelayState()
+    {
+        logger?.LogDebug("Getting relay state");
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.STAT_.ToString(), CommonIEC61107.DEFAULT_END);
+        var value = CommonIEC61107.ParseResponseValues(responceStr).First();
+        return ParseRelayState(value);
+    }
+
+    /// <summary>
+    /// STAT_ holat so'zining (16-bit hex) 15-bitidan rele holatini ajratadi.
+    /// </summary>
+    /// <returns><b>true</b> - rele yoniq</returns>
+    public static bool ParseRelayState(string statHex)
+    {
+        var stat = Convert.ToUInt16(statHex, 16);
+        return (stat & 0x8000) != 0;
+    }
+
     // === Funksiya ro'yxatlari ===
 
     public string[] GetEndOfDayFunctions() => [CE208Function.ENDPE.ToString()];
