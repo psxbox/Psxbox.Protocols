@@ -76,6 +76,50 @@ public abstract class BaseReader(IStream stream, string id, string password = "7
         return (values[0], values[1], values[2], values[3], values[4]);
     }
 
+    /// <summary>
+    /// Yuklama relesini yoqish. Faqat relesi bor hisoblagichlarda override qilinadi.
+    /// </summary>
+    public virtual Task RelayOn() =>
+        throw new NotSupportedException("Rele boshqaruvi bu hisoblagichda qo'llab-quvvatlanmaydi");
+
+    /// <summary>
+    /// Yuklama relesini o'chirish. Faqat relesi bor hisoblagichlarda override qilinadi.
+    /// </summary>
+    public virtual Task RelayOff() =>
+        throw new NotSupportedException("Rele boshqaruvi bu hisoblagichda qo'llab-quvvatlanmaydi");
+
+    /// <summary>
+    /// Rele holatini o'qish. Faqat relesi bor hisoblagichlarda override qilinadi.
+    /// </summary>
+    public virtual Task<bool> GetRelayState() =>
+        throw new NotSupportedException("Rele boshqaruvi bu hisoblagichda qo'llab-quvvatlanmaydi");
+
+    protected async Task SendWrite(string func, params string[] paramArg)
+    {
+        var maxRetries = 2;
+
+        for (int attempt = 0; attempt < maxRetries; attempt++)
+        {
+            try
+            {
+                await CommonIEC61107.SendWrite(stream, func, paramArg);
+                return;
+            }
+            catch (Exception ex)
+            {
+                // ERRxx - hisoblagichning ataylab rad javobi, qayta urinish foydasiz
+                if (ex.Message.Contains("ERR") || attempt == maxRetries - 1)
+                {
+                    throw;
+                }
+
+                await Disconnect();
+                await Task.Delay(1000);
+                await Connect();
+            }
+        }
+    }
+
     protected virtual void Dispose(bool disposing)
     {
         if (!disposedValue)

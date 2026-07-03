@@ -159,4 +159,20 @@ public interface IReader : IDisposable
     string[] GetCurrentDayFunctions();
     string[] GetCurrentMonthFunctions();
     string[] GetCurrentYearFunctions();
+
+    /// <summary>
+    /// Yuklama relesini yoqish
+    /// </summary>
+    Task RelayOn();
+
+    /// <summary>
+    /// Yuklama relesini o'chirish
+    /// </summary>
+    Task RelayOff();
+
+    /// <summary>
+    /// Rele holatini o'qish
+    /// </summary>
+    /// <returns><b>true</b> - rele yoniq, <b>false</b> - o'chiq</returns>
+    Task<bool> GetRelayState();
 }
