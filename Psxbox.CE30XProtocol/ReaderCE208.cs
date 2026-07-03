@@ -123,7 +123,64 @@ public class ReaderCE208(IStream stream,
 
     public Task<(string date, double tSum, double t1, double t2, double t3, double t4)> GetEndOfPeriod(
         ushort ago, string func, params string[] args) => throw new NotImplementedException();
-    public Task<IEnumerable<string>> GetListOfArchiveTimes(string func) => throw new NotImplementedException();
+
+    private static readonly string[] DayDateFormats = ["dd.MM.yy", "d.M.yy"];
+    private static readonly string[] MonthDateFormats = ["MM.yy", "M.yy"];
+
+    /// <summary>
+    /// Arxiv sanasini parse qiladi. Kunlik: dd.MM.yy, oylik: MM.yy (bir xonali variantlar bilan).
+    /// </summary>
+    public static DateOnly ParseArchiveDate(string value, bool daily)
+    {
+        return DateOnly.ParseExact(value, daily ? DayDateFormats : MonthDateFormats,
+            CultureInfo.InvariantCulture, DateTimeStyles.None);
+    }
+
+    public async Task<IEnumerable<string>> GetListOfArchiveTimes(string func)
+    {
+        logger?.LogDebug("Getting {func} dates", func);
+
+        string[] validFuncs = [
+            CE208Function.DATED.ToString(),
+            CE208Function.DATEM.ToString(),
+            CE208Function.DATEP.ToString(),
+        ];
+        if (!validFuncs.Contains(func))
+        {
+            throw new ArgumentException($"Unknown function: {func}", nameof(func));
+        }
+
+        // DATED/DATEP - 128 tagacha, DATEM - 36 tagacha yozuv; bo'lib-bo'lib o'qiymiz
+        const int chunk = 16;
+        int max = func == CE208Function.DATEM.ToString() ? 36 : 128;
+
+        List<string> result = [];
+        for (int i = 1; i <= max; i += chunk)
+        {
+            var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], $"{i}.{chunk}");
+            var values = CommonIEC61107.ParseResponseValues(responceStr)
+                .Where(v => !string.IsNullOrWhiteSpace(v))
+                .ToArray();
+
+            if (values.Length == 0 || values[0].StartsWith("ERR")) break;
+            result.AddRange(values);
+            if (values.Length < chunk) break;
+        }
+
+        if (func == CE208Function.DATED.ToString())
+        {
+            _dayArchiveDates.Clear();
+            _dayArchiveDates.AddRange(result.Select(v => ParseArchiveDate(v, daily: true)));
+        }
+        else if (func == CE208Function.DATEM.ToString())
+        {
+            _monthArchiveDates.Clear();
+            _monthArchiveDates.AddRange(result.Select(v => ParseArchiveDate(v, daily: false)));
+        }
+
+        return result;
+    }
+
     public Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(
         ushort daysAgo, short fromRecord, string func) => throw new NotImplementedException();
     public Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(
