@@ -11,6 +11,7 @@ namespace Psxbox.CE30XProtocol
         public const byte SOH = 0x01;
         public const byte STX = 0x02;
         public const byte ETX = 0x03;
+        public const byte ACK = 0x06;
         public const byte BBR = 0x28; // (
         public const byte EBR = 0x29; // )
         public const string VALUES_REGEX_PATTERN = @"\((.*?)\)";
@@ -172,6 +173,32 @@ namespace Psxbox.CE30XProtocol
                 throw new($"Kelgan javob noto'gri: {resultStr}");
 
             return resultStr;
+        }
+
+        /// <summary>
+        /// W1 yozish komandasini yuboradi. Muvaffaqiyatda hisoblagich ACK (0x06) qaytaradi,
+        /// xatoda (ERRxx) freymi keladi - bu holda Exception tashlanadi.
+        /// </summary>
+        public static async Task SendWrite(IStream stream, string func, params string[] paramArg)
+        {
+            var sendData = GetCommand(CE30XCommand.W1, func, paramArg);
+            stream.Flush();
+            await stream.WriteAsync(sendData);
+
+            var first = await stream.ReadAsync();
+            if (first == ACK) return;
+
+            if (first is SOH or STX)
+            {
+                var frame = await stream.ReadUntilAsync(ETX);
+                _ = await stream.ReadAsync(); // freymdan keyingi checksum bayti
+                var text = Encoding.ASCII.GetString(frame);
+                var errMatch = Regex.Match(text, @"ERR\d+");
+                var err = errMatch.Success ? errMatch.Value : text;
+                throw new Exception($"Yozish komandasi rad etildi: {err}");
+            }
+
+            throw new Exception($"Yozish komandasiga kutilmagan javob: 0x{first:X2}");
         }
     }
 }
