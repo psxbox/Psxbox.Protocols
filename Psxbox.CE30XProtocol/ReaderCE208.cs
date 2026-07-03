@@ -339,8 +339,55 @@ public class ReaderCE208(IStream stream,
         return (date.ToString("dd.MM.yy"), data);
     }
 
-    public Task<IEnumerable<(ushort recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(
-        string func) => throw new NotImplementedException();
+    private const int PowerStatusReadCount = 10; // jurnaldan o'qiladigan oxirgi yozuvlar soni
+
+    /// <summary>
+    /// Jurnal yozuvini parse qiladi. Format: "dd-MM-yy;HH:mm;XX".
+    /// </summary>
+    public static (DateTimeOffset dateTime, byte status) ParseLogRecord(string record)
+    {
+        var parts = record.Split(';');
+        var date = DateOnly.ParseExact(parts[0], "dd-MM-yy");
+        var time = TimeOnly.Parse(parts[1]);
+        var status = byte.Parse(parts[2]);
+        return (new DateTimeOffset(date.ToDateTime(time), TimeSpan.FromHours(5)), status);
+    }
+
+    public async Task<IEnumerable<(ushort recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
+    {
+        logger?.LogDebug("Getting {func} journal", func);
+
+        string[] validFuncs = [
+            CE208Function.LOG01.ToString(),
+            CE208Function.LOG02.ToString(),
+            CE208Function.LOG03.ToString(),
+        ];
+        if (!validFuncs.Contains(func))
+        {
+            throw new ArgumentException($"Unknown function: {func}", nameof(func));
+        }
+
+        // Jurnal yozuvlari yangi->eski tartibda, 1-yozuvdan boshlab o'qiymiz
+        var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX],
+            "1", PowerStatusReadCount.ToString());
+        var values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
+
+        var result = new List<(ushort recNo, DateTimeOffset dateTime, byte status)>();
+        for (int i = 0; i < values.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(values[i]) || values[i].StartsWith("ERR")) continue;
+            try
+            {
+                var (dateTime, status) = ParseLogRecord(values[i]);
+                result.Add(((ushort)(i + 1), dateTime, status));
+            }
+            catch (Exception ex)
+            {
+                logger?.LogError(ex, "Error parsing: {item}", values[i]);
+            }
+        }
+        return result;
+    }
 
     // === CE208 protokolida mavjud emas ===
 
