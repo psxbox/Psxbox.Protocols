@@ -94,7 +94,9 @@ public class ReaderCE208(IStream stream,
             return await GetEnergyValues(CE208Function.ET0PE.ToString());
         }
 
-        throw new NotImplementedException(); // Task 8 da davr-oxiri tarmog'i qo'shiladi
+        var func = GetPeriodFunc(period, "ENDPE", "ENMPE");
+        var (_, tSum, t1, t2, t3, t4) = await GetEndOfPeriod(1, func); // oxirgi yopilgan davr
+        return (tSum, t1, t2, t3, t4);
     }
 
     public async Task<(double sum, double t1, double t2, double t3, double t4)> GetReactiveEnergyIn(
@@ -106,7 +108,9 @@ public class ReaderCE208(IStream stream,
             return await GetEnergyValues(CE208Function.ET0QI.ToString());
         }
 
-        throw new NotImplementedException(); // Task 8 da davr-oxiri tarmog'i qo'shiladi
+        var func = GetPeriodFunc(period, "ERD", "ERM");
+        var (_, tSum, t1, t2, t3, t4) = await GetEndOfPeriod(1, func); // oxirgi yopilgan davr
+        return (tSum, t1, t2, t3, t4);
     }
 
     public async Task<(double sum, double t1, double t2, double t3, double t4)> GetReactiveEnergyOut(
@@ -121,8 +125,69 @@ public class ReaderCE208(IStream stream,
         return await GetEnergyValues(CE208Function.ET0QE.ToString());
     }
 
-    public Task<(string date, double tSum, double t1, double t2, double t3, double t4)> GetEndOfPeriod(
-        ushort ago, string func, params string[] args) => throw new NotImplementedException();
+    public async Task<(string date, double tSum, double t1, double t2, double t3, double t4)> GetEndOfPeriod(
+        ushort ago, string func, params string[] args)
+    {
+        logger?.LogDebug("Getting {func}, {ago} period ago", func, ago);
+
+        bool daily = func is "ENDPE" or "ERD";
+        bool monthly = func is "ENMPE" or "ERM";
+        if (!daily && !monthly)
+        {
+            throw new ArgumentException($"Unknown function: {func}", nameof(func));
+        }
+
+        // Arxiv sanalari keshini to'ldirish (birinchi so'rovda qurilmadan o'qiladi)
+        var dates = daily ? _dayArchiveDates : _monthArchiveDates;
+        if (dates.Count == 0)
+        {
+            await GetListOfArchiveTimes(daily
+                ? CE208Function.DATED.ToString()
+                : CE208Function.DATEM.ToString());
+        }
+
+        var today = DateTime.Today;
+        var requested = DateOnly.FromDateTime(daily
+            ? today.AddDays(-ago)
+            : today.StartOfAMonth().AddMonths(-ago));
+
+        var index = dates.IndexOf(requested);
+        if (index < 0)
+        {
+            logger?.LogWarning("Requested date {date} not found in {func} archive", requested, func);
+            return ("", 0, 0, 0, 0, 0);
+        }
+
+        // Aktiv - sana bilan, reaktiv - arxiv pozitsiyasi (1-dan) indeksi bilan
+        var responceStr = func switch
+        {
+            "ENDPE" => await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], requested.ToString("dd.MM.yy")),
+            "ENMPE" => await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], requested.ToString("MM.yy")),
+            "ERD" => await SendAndGet(CE30XCommand.R1, $"ERD{index + 1:D2}", [CommonIEC61107.ETX]),
+            _ => await SendAndGet(CE30XCommand.R1, $"ERM{index + 1:D2}", [CommonIEC61107.ETX]),
+        };
+
+        var values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
+        if (values.Length == 0 || values[0].StartsWith("ERR"))
+        {
+            return ("", 0, 0, 0, 0, 0);
+        }
+
+        return (
+            requested.ToString(daily ? "dd.MM.yy" : "MM.yy"),
+            double.Parse(values[0], CultureInfo.InvariantCulture),
+            double.Parse(values[1], CultureInfo.InvariantCulture),
+            double.Parse(values[2], CultureInfo.InvariantCulture),
+            double.Parse(values[3], CultureInfo.InvariantCulture),
+            double.Parse(values[4], CultureInfo.InvariantCulture));
+    }
+
+    private static string GetPeriodFunc(string period, string dayFunc, string monthFunc) => period.ToLower() switch
+    {
+        "day" => dayFunc,
+        "month" => monthFunc,
+        _ => throw new ArgumentException($"Invalid period: {period}", nameof(period)),
+    };
 
     private static readonly string[] DayDateFormats = ["dd.MM.yy", "d.M.yy"];
     private static readonly string[] MonthDateFormats = ["MM.yy", "M.yy"];
