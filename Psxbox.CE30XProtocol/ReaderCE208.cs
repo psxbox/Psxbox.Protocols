@@ -17,22 +17,109 @@ public class ReaderCE208(IStream stream,
     private readonly List<DateOnly> _monthArchiveDates = [];
     private int? _recordsPerDay;
 
-    // === Keyingi tasklarda to'ldiriladigan metodlar (hozircha stub) ===
+    // === O'lchov metodlari (Task 5) ===
 
-    public Task<DateTimeOffset> GetWatch() => throw new NotImplementedException();
-    public Task<double> GetFrequency() => throw new NotImplementedException();
-    public Task<(double a, double b, double c)> GetCurrent() => throw new NotImplementedException();
-    public Task<(double a, double b, double c)> GetVoltage() => throw new NotImplementedException();
-    public Task<(double a, double b, double c, double sum)> GetPowerS() => throw new NotImplementedException();
-    public Task<(double a, double b, double c, double sum)> GetPowerA() => throw new NotImplementedException();
-    public Task<(double a, double b, double c, double sum)> GetPowerR() => throw new NotImplementedException();
+    public async Task<DateTimeOffset> GetWatch()
+    {
+        logger?.LogDebug("Getting watch");
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.WATCH.ToString(), CommonIEC61107.DEFAULT_END);
 
-    public Task<(double sum, double t1, double t2, double t3, double t4)> GetActiveEnergyIn(
-        bool forCurrentPeriod = false, string period = "day") => throw new NotImplementedException();
-    public Task<(double sum, double t1, double t2, double t3, double t4)> GetReactiveEnergyIn(
-        bool forCurrentPeriod = false, string period = "day") => throw new NotImplementedException();
-    public Task<(double sum, double t1, double t2, double t3, double t4)> GetReactiveEnergyOut(
-        bool forCurrentPeriod = false, string period = "day") => throw new NotImplementedException();
+        // Javob formati: (HH:mm:ss,D.dd.MM.yy,s) - D hafta kuni, s mavsum belgisi
+        string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray()[0]
+            .Split(',', StringSplitOptions.RemoveEmptyEntries);
+
+        var time = TimeOnly.ParseExact(values[0], "HH:mm:ss");
+        var firstDotIndex = values[1].IndexOf('.');
+        var date = DateOnly.ParseExact(values[1][(firstDotIndex + 1)..], "dd.MM.yy");
+
+        return new DateTimeOffset(date.ToDateTime(time), TimeSpan.FromHours(5));
+    }
+
+    public async Task<double> GetFrequency()
+    {
+        logger?.LogDebug("Getting frequency");
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.FREQU.ToString(), CommonIEC61107.DEFAULT_END);
+        var values = ParseDoubleValues(responceStr);
+        return values[0];
+    }
+
+    public async Task<(double a, double b, double c)> GetCurrent()
+    {
+        logger?.LogDebug("Getting current");
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.CURRE.ToString(), CommonIEC61107.DEFAULT_END);
+        var values = ParseDoubleValues(responceStr);
+        return (values[0], 0, 0); // bir fazali
+    }
+
+    public async Task<(double a, double b, double c)> GetVoltage()
+    {
+        logger?.LogDebug("Getting voltage");
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.VOLTA.ToString(), CommonIEC61107.DEFAULT_END);
+        var values = ParseDoubleValues(responceStr);
+        return (values[0], 0, 0); // bir fazali
+    }
+
+    public async Task<(double a, double b, double c, double sum)> GetPowerA()
+    {
+        logger?.LogDebug("Getting active power kWt");
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.POWEP.ToString(), CommonIEC61107.DEFAULT_END);
+        var values = ParseDoubleValues(responceStr);
+        return (values[0], 0, 0, values[0]); // bir fazali
+    }
+
+    public async Task<(double a, double b, double c, double sum)> GetPowerS()
+    {
+        logger?.LogDebug("Getting power kVA");
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.POWES.ToString(), CommonIEC61107.DEFAULT_END);
+        var values = ParseDoubleValues(responceStr);
+        return (values[0], 0, 0, values[0]); // bir fazali
+    }
+
+    public async Task<(double a, double b, double c, double sum)> GetPowerR()
+    {
+        logger?.LogDebug("Getting reactive power kVar");
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.POWEQ.ToString(), CommonIEC61107.DEFAULT_END);
+        var values = ParseDoubleValues(responceStr);
+        return (values[0], 0, 0, values[0]); // bir fazali
+    }
+
+    // === Energiya metodlari (Task 5 + Task 8) ===
+
+    public async Task<(double sum, double t1, double t2, double t3, double t4)> GetActiveEnergyIn(
+        bool forCurrentPeriod = false, string period = "day")
+    {
+        logger?.LogDebug("Getting accumulated active input energy");
+        if (forCurrentPeriod)
+        {
+            return await GetEnergyValues(CE208Function.ET0PE.ToString());
+        }
+
+        throw new NotImplementedException(); // Task 8 da davr-oxiri tarmog'i qo'shiladi
+    }
+
+    public async Task<(double sum, double t1, double t2, double t3, double t4)> GetReactiveEnergyIn(
+        bool forCurrentPeriod = false, string period = "day")
+    {
+        logger?.LogDebug("Getting accumulated reactive input energy");
+        if (forCurrentPeriod)
+        {
+            return await GetEnergyValues(CE208Function.ET0QI.ToString());
+        }
+
+        throw new NotImplementedException(); // Task 8 da davr-oxiri tarmog'i qo'shiladi
+    }
+
+    public async Task<(double sum, double t1, double t2, double t3, double t4)> GetReactiveEnergyOut(
+        bool forCurrentPeriod = false, string period = "day")
+    {
+        if (!forCurrentPeriod)
+        {
+            throw new NotSupportedException("CE208 da reaktiv eksport energiyasining davr-oxiri arxivi yo'q");
+        }
+
+        logger?.LogDebug("Getting accumulated reactive output energy");
+        return await GetEnergyValues(CE208Function.ET0QE.ToString());
+    }
 
     public Task<(string date, double tSum, double t1, double t2, double t3, double t4)> GetEndOfPeriod(
         ushort ago, string func, params string[] args) => throw new NotImplementedException();
