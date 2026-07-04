@@ -201,6 +201,12 @@ public class ReaderCE208(IStream stream,
             CultureInfo.InvariantCulture, DateTimeStyles.None);
     }
 
+    /// <summary>
+    /// Qurilma bo'sh arxiv joylarini "00.00.00" (yoki "00.00") kabi nol-to'ldirilgan sana bilan
+    /// belgilaydi - bu haqiqiy sana emas, yozuv mavjud emasligini bildiradi.
+    /// </summary>
+    private static bool IsEmptyArchiveSlot(string value) => value.All(c => c is '0' or '.');
+
     public async Task<IEnumerable<string>> GetListOfArchiveTimes(string func)
     {
         logger?.LogDebug("Getting {func} dates", func);
@@ -228,8 +234,13 @@ public class ReaderCE208(IStream stream,
                 .ToArray();
 
             if (values.Length == 0 || values[0].StartsWith("ERR")) break;
-            result.AddRange(values);
-            if (values.Length < chunk) break;
+
+            // Qurilma to'ldirilmagan arxiv joylarini "00.00.00" bilan belgilaydi -
+            // bular haqiqiy yozuv emas, shuning uchun ro'yxatga qo'shilmaydi va
+            // ularning paydo bo'lishi arxiv oxiri ekanini bildiradi.
+            var realValues = values.TakeWhile(v => !IsEmptyArchiveSlot(v)).ToArray();
+            result.AddRange(realValues);
+            if (realValues.Length < values.Length || values.Length < chunk) break;
         }
 
         if (func == CE208Function.DATED.ToString())
@@ -434,12 +445,14 @@ public class ReaderCE208(IStream stream,
     }
 
     /// <summary>
-    /// STAT_ holat so'zining (16-bit hex) 15-bitidan rele holatini ajratadi.
+    /// STAT_ holat so'zidan (real qurilmada 8 ta hex raqam/32-bit kelishi mumkin,
+    /// hujjatdagi jadval 16-bit deb ko'rsatgan) 15-bitni ajratib rele holatini qaytaradi.
+    /// Bit joylashuvi so'zning umumiy uzunligidan qat'iy nazar bir xil qoladi.
     /// </summary>
     /// <returns><b>true</b> - rele yoniq</returns>
     public static bool ParseRelayState(string statHex)
     {
-        var stat = Convert.ToUInt16(statHex, 16);
+        var stat = Convert.ToUInt32(statHex, 16);
         return (stat & 0x8000) != 0;
     }
 
