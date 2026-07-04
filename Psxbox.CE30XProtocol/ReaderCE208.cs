@@ -3,6 +3,7 @@ using Psxbox.Streams;
 using Psxbox.Utils;
 using Psxbox.Utils.Helpers;
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace Psxbox.CE30XProtocol;
 
@@ -71,6 +72,7 @@ public class ReaderCE208(IStream stream,
     {
         logger?.LogDebug("Getting power kVA");
         var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.POWES.ToString(), CommonIEC61107.DEFAULT_END);
+        ThrowIfErrorResponse(responceStr, "To'liq quvvat (POWES)");
         var values = ParseDoubleValues(responceStr);
         return (values[0], 0, 0, values[0]); // bir fazali
     }
@@ -79,8 +81,27 @@ public class ReaderCE208(IStream stream,
     {
         logger?.LogDebug("Getting reactive power kVar");
         var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.POWEQ.ToString(), CommonIEC61107.DEFAULT_END);
+        ThrowIfErrorResponse(responceStr, "Reaktiv quvvat (POWEQ)");
         var values = ParseDoubleValues(responceStr);
         return (values[0], 0, 0, values[0]); // bir fazali
+    }
+
+    /// <summary>
+    /// Real qurilmada POWES/POWEQ so'rovlari ERRxx (masalan ERR12 - "недопустимое
+    /// время выполнения"/qabul qilinmaydigan so'rov) qaytarishi kuzatildi. Bu holatda
+    /// javob func nomini o'z ichiga olgani uchun SendAndGet exception tashlamaydi va
+    /// ERRxx qiymatni double sifatida parse qilishga urinish tushunarsiz
+    /// FormatException bilan tugaydi - shuning uchun bu yerda oldindan tekshiramiz.
+    /// </summary>
+    private static void ThrowIfErrorResponse(string responceStr, string context)
+    {
+        var errMatch = Regex.Match(responceStr, @"ERR\d+");
+        if (errMatch.Success)
+        {
+            throw new NotSupportedException(
+                $"{context} so'rovi rad etildi ({errMatch.Value}). Bu CE208 nusxasi " +
+                "bu ko'rsatkichni qo'llab-quvvatlamasligi mumkin.");
+        }
     }
 
     // === Energiya metodlari (Task 5 + Task 8) ===
