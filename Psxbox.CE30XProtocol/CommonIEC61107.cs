@@ -167,7 +167,12 @@ namespace Psxbox.CE30XProtocol
 
             if (resultStr == "\u0002\u0003") return "";
 
-            if (resultStr.Contains("ERR18")) return resultStr;
+            // Xato javoblari (masalan (ERR12)) func nomini o'z ichiga olmasligi mumkin
+            // (faqat "(ERRxx)" ko'rinishida keladi), shuning uchun quyidagi
+            // "!Contains(func)" tekshiruvidan oldin ajratiladi. Ilgari faqat ERR18 shu
+            // tarzda ishlangan; boshqa ERRxx kodlar generic "Kelgan javob noto'g'ri"
+            // xatosi bilan tashlanardi va chaqiruvchi kod ERR kodini ajrata olmasdi.
+            if (Regex.IsMatch(resultStr, @"ERR\d+")) return resultStr;
 
             if (!resultStr.Contains(func))
                 throw new($"Kelgan javob noto'gri: {resultStr}");

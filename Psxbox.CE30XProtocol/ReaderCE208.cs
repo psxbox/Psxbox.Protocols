@@ -20,10 +20,19 @@ public class ReaderCE208(IStream stream,
 
     // === O'lchov metodlari (Task 5) ===
 
+    // MUHIM: DEFAULT_END ([0x0D,0x0A,ETX]) o'rniga [ETX] ishlatiladi. Real qurilmada
+    // xato (ERRxx) javoblari faqat bare ETX bilan tugaydi, "\r\n" oldindan kelmaydi -
+    // shuning uchun DEFAULT_END'ni terminator sifatida qidirish hech qachon topilmay,
+    // stream OperationTimeout tugaguncha "osilib qolar edi" (go'yo qurilma umuman
+    // javob bermagandek). Muvaffaqiyatli javoblar odatda "\r\n"+ETX bilan tugaydi,
+    // lekin [ETX] terminatori ikkala holatni ham to'g'ri o'qiydi (birinchi ETX
+    // baytigacha), chunki qiymatlar orasida haqiqiy 0x03 bayti bo'lishi mumkin emas.
+
     public async Task<DateTimeOffset> GetWatch()
     {
         logger?.LogDebug("Getting watch");
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.WATCH.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.WATCH.ToString(), [CommonIEC61107.ETX]);
+        ThrowIfErrorResponse(responceStr, CE208Function.WATCH.ToString());
 
         // Javob formati: (HH:mm:ss,D.dd.MM.yy,s) - D hafta kuni, s mavsum belgisi
         string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray()[0]
@@ -39,7 +48,8 @@ public class ReaderCE208(IStream stream,
     public async Task<double> GetFrequency()
     {
         logger?.LogDebug("Getting frequency");
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.FREQU.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.FREQU.ToString(), [CommonIEC61107.ETX]);
+        ThrowIfErrorResponse(responceStr, CE208Function.FREQU.ToString());
         var values = ParseDoubleValues(responceStr);
         return values[0];
     }
@@ -47,7 +57,8 @@ public class ReaderCE208(IStream stream,
     public async Task<(double a, double b, double c)> GetCurrent()
     {
         logger?.LogDebug("Getting current");
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.CURRE.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.CURRE.ToString(), [CommonIEC61107.ETX]);
+        ThrowIfErrorResponse(responceStr, CE208Function.CURRE.ToString());
         var values = ParseDoubleValues(responceStr);
         return (values[0], 0, 0); // bir fazali
     }
@@ -55,7 +66,8 @@ public class ReaderCE208(IStream stream,
     public async Task<(double a, double b, double c)> GetVoltage()
     {
         logger?.LogDebug("Getting voltage");
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.VOLTA.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.VOLTA.ToString(), [CommonIEC61107.ETX]);
+        ThrowIfErrorResponse(responceStr, CE208Function.VOLTA.ToString());
         var values = ParseDoubleValues(responceStr);
         return (values[0], 0, 0); // bir fazali
     }
@@ -63,7 +75,8 @@ public class ReaderCE208(IStream stream,
     public async Task<(double a, double b, double c, double sum)> GetPowerA()
     {
         logger?.LogDebug("Getting active power kWt");
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.POWEP.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.POWEP.ToString(), [CommonIEC61107.ETX]);
+        ThrowIfErrorResponse(responceStr, CE208Function.POWEP.ToString());
         var values = ParseDoubleValues(responceStr);
         return (values[0], 0, 0, values[0]); // bir fazali
     }
@@ -71,7 +84,7 @@ public class ReaderCE208(IStream stream,
     public async Task<(double a, double b, double c, double sum)> GetPowerS()
     {
         logger?.LogDebug("Getting power kVA");
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.POWES.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.POWES.ToString(), [CommonIEC61107.ETX]);
         ThrowIfErrorResponse(responceStr, "To'liq quvvat (POWES)");
         var values = ParseDoubleValues(responceStr);
         return (values[0], 0, 0, values[0]); // bir fazali
@@ -80,17 +93,17 @@ public class ReaderCE208(IStream stream,
     public async Task<(double a, double b, double c, double sum)> GetPowerR()
     {
         logger?.LogDebug("Getting reactive power kVar");
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.POWEQ.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.POWEQ.ToString(), [CommonIEC61107.ETX]);
         ThrowIfErrorResponse(responceStr, "Reaktiv quvvat (POWEQ)");
         var values = ParseDoubleValues(responceStr);
         return (values[0], 0, 0, values[0]); // bir fazali
     }
 
     /// <summary>
-    /// Real qurilmada POWES/POWEQ so'rovlari ERRxx (masalan ERR12 - "недопустимое
-    /// время выполнения"/qabul qilinmaydigan so'rov) qaytarishi kuzatildi. Bu holatda
-    /// javob func nomini o'z ichiga olgani uchun SendAndGet exception tashlamaydi va
-    /// ERRxx qiymatni double sifatida parse qilishga urinish tushunarsiz
+    /// Real qurilmada ko'plab so'rovlar (masalan POWES/POWEQ/ET0QI) ERRxx (masalan
+    /// ERR12 - qabul qilinmaydigan so'rov) qaytarishi kuzatildi. Bu holatda javob
+    /// func nomini o'z ichiga olgani uchun SendAndGet exception tashlamaydi va ERRxx
+    /// qiymatni double/hex sifatida parse qilishga urinish tushunarsiz
     /// FormatException bilan tugaydi - shuning uchun bu yerda oldindan tekshiramiz.
     /// </summary>
     private static void ThrowIfErrorResponse(string responceStr, string context)
@@ -112,7 +125,7 @@ public class ReaderCE208(IStream stream,
         logger?.LogDebug("Getting accumulated active input energy");
         if (forCurrentPeriod)
         {
-            return await GetEnergyValues(CE208Function.ET0PE.ToString());
+            return await GetEnergyValuesCE208(CE208Function.ET0PE.ToString());
         }
 
         var func = GetPeriodFunc(period, "ENDPE", "ENMPE");
@@ -126,7 +139,7 @@ public class ReaderCE208(IStream stream,
         logger?.LogDebug("Getting accumulated reactive input energy");
         if (forCurrentPeriod)
         {
-            return await GetEnergyValues(CE208Function.ET0QI.ToString());
+            return await GetEnergyValuesCE208(CE208Function.ET0QI.ToString());
         }
 
         var func = GetPeriodFunc(period, "ERD", "ERM");
@@ -143,7 +156,23 @@ public class ReaderCE208(IStream stream,
         }
 
         logger?.LogDebug("Getting accumulated reactive output energy");
-        return await GetEnergyValues(CE208Function.ET0QE.ToString());
+        return await GetEnergyValuesCE208(CE208Function.ET0QE.ToString());
+    }
+
+    /// <summary>
+    /// BaseReader.GetEnergyValues'ga o'xshaydi, lekin CE208'ga xos ikkita farq bilan:
+    /// terminator sifatida DEFAULT_END o'rniga [ETX] ishlatiladi (real qurilmada ERRxx
+    /// javoblari bare ETX bilan tugaydi, "\r\n" oldindan kelmaydi - yuqoridagi izohga
+    /// qarang) va ERRxx javobini oldindan tekshiradi. Umumiy BaseReader.GetEnergyValues
+    /// boshqa 7 ta reader tomonidan ishlatilgani uchun ularga tegmaslik uchun bu yerda
+    /// alohida yozildi.
+    /// </summary>
+    private async Task<(double sum, double t1, double t2, double t3, double t4)> GetEnergyValuesCE208(string func)
+    {
+        var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX]);
+        ThrowIfErrorResponse(responceStr, func);
+        var values = ParseDoubleValues(responceStr);
+        return (values[0], values[1], values[2], values[3], values[4]);
     }
 
     public async Task<(string date, double tSum, double t1, double t2, double t3, double t4)> GetEndOfPeriod(
@@ -296,7 +325,8 @@ public class ReaderCE208(IStream stream,
     {
         if (_recordsPerDay is int cached) return cached;
 
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.TAVER.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.TAVER.ToString(), [CommonIEC61107.ETX]);
+        ThrowIfErrorResponse(responceStr, CE208Function.TAVER.ToString());
         var taver = int.Parse(CommonIEC61107.ParseResponseValues(responceStr).First(), CultureInfo.InvariantCulture);
         _recordsPerDay = 1440 / taver;
         logger?.LogDebug("TAVER = {taver} min, records per day = {records}", taver, _recordsPerDay);
@@ -467,7 +497,8 @@ public class ReaderCE208(IStream stream,
     public override async Task<bool> GetRelayState()
     {
         logger?.LogDebug("Getting relay state");
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.STAT_.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.STAT_.ToString(), [CommonIEC61107.ETX]);
+        ThrowIfErrorResponse(responceStr, CE208Function.STAT_.ToString());
         var value = CommonIEC61107.ParseResponseValues(responceStr).First();
         return ParseRelayState(value);
     }
