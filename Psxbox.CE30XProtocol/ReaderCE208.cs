@@ -326,6 +326,13 @@ public class ReaderCE208(IStream stream,
     private async Task<(string date, IEnumerable<(double, short)> data)> ReadProfileRecords(
         string func, DateOnly date, short fromRecord, int recCount)
     {
+        // OGOHLANTIRISH: DATED/DATEM arxiv sanalarida qurilma to'ldirilmagan joylarni
+        // "00.00.00" bilan belgilaydi (haqiqiy sana bo'lolmaydigan qiymat, shuning uchun
+        // xavfsiz filtrlanadi - IsEmptyArchiveSlot). Profil yozuvlarida xuddi shu turdagi
+        // bo'sh-joy to'ldirish bo'lishi mumkin, lekin "0.000" haqiqiy (yuk yo'q) qiymat
+        // ham bo'lishi mumkin - shuning uchun bu yerda shunga o'xshash filtr qo'llanmaydi.
+        // Real qurilmada yaqin arxivli profil bilan tekshirilgunga qadar ochiq savol
+        // (qarang: dizayn hujjati, "Ochiq savollar" bo'limi).
         // GRAPE(dd.MM.yy,nn,kk) - javobda sana yo'q, shuning uchun so'ralgan sana qaytariladi
         var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX],
             date.ToString("dd.MM.yy"), fromRecord.ToString(), recCount.ToString());
