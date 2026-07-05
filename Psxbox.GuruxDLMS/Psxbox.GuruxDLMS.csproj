@@ -9,7 +9,7 @@
 
   <ItemGroup>
     <PackageReference Include="Gurux.Common" Version="8.4.2503.602" />
-    <PackageReference Include="Gurux.DLMS" Version="9.0.2604.2302" />
+    <PackageReference Include="Gurux.DLMS" Version="9.0.2605.2801" />
     <PackageReference Include="Gurux.Net" Version="8.4.2604.201" />
     <PackageReference Include="Gurux.Serial" Version="8.4.2503.603" />
   </ItemGroup>
