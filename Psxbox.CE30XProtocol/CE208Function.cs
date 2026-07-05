@@ -26,4 +26,7 @@ public enum CE208Function
     LOG01, // kuchlanish holati jurnali
     LOG02, // dasturlash jurnali
     LOG03, // pitaniye jurnali
+    EADPE, // kunlik energiya
+    EAMPE, // oylik energiya
+
 }

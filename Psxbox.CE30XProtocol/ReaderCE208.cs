@@ -123,12 +123,12 @@ public class ReaderCE208(IStream stream,
         bool forCurrentPeriod = false, string period = "day")
     {
         logger?.LogDebug("Getting accumulated active input energy");
-        if (forCurrentPeriod)
+        if (!forCurrentPeriod)
         {
             return await GetEnergyValuesCE208(CE208Function.ET0PE.ToString());
         }
 
-        var func = GetPeriodFunc(period, "ENDPE", "ENMPE");
+        var func = GetPeriodFunc(period, "END", "ENM");
         var (_, tSum, t1, t2, t3, t4) = await GetEndOfPeriod(1, func); // oxirgi yopilgan davr
         return (tSum, t1, t2, t3, t4);
     }
@@ -137,20 +137,22 @@ public class ReaderCE208(IStream stream,
         bool forCurrentPeriod = false, string period = "day")
     {
         logger?.LogDebug("Getting accumulated reactive input energy");
+
         if (forCurrentPeriod)
         {
+            throw new NotSupportedException("CE208 da reaktiv import energiyasining davr-oxiri arxivi yo'q");
+        }
+        else
+        {
+            logger?.LogDebug("Getting accumulated reactive input energy (not for current period)");
             return await GetEnergyValuesCE208(CE208Function.ET0QI.ToString());
         }
-
-        var func = GetPeriodFunc(period, "ERD", "ERM");
-        var (_, tSum, t1, t2, t3, t4) = await GetEndOfPeriod(1, func); // oxirgi yopilgan davr
-        return (tSum, t1, t2, t3, t4);
     }
 
     public async Task<(double sum, double t1, double t2, double t3, double t4)> GetReactiveEnergyOut(
         bool forCurrentPeriod = false, string period = "day")
     {
-        if (!forCurrentPeriod)
+        if (forCurrentPeriod)
         {
             throw new NotSupportedException("CE208 da reaktiv eksport energiyasining davr-oxiri arxivi yo'q");
         }
@@ -180,20 +182,11 @@ public class ReaderCE208(IStream stream,
     {
         logger?.LogDebug("Getting {func}, {ago} period ago", func, ago);
 
-        bool daily = func is "ENDPE" or "ERD";
-        bool monthly = func is "ENMPE" or "ERM";
+        bool daily = func is "ENDPE" or "END";
+        bool monthly = func is "ENMPE" or "ENM";
         if (!daily && !monthly)
         {
             throw new ArgumentException($"Unknown function: {func}", nameof(func));
-        }
-
-        // Arxiv sanalari keshini to'ldirish (birinchi so'rovda qurilmadan o'qiladi)
-        var dates = daily ? _dayArchiveDates : _monthArchiveDates;
-        if (dates.Count == 0)
-        {
-            await GetListOfArchiveTimes(daily
-                ? CE208Function.DATED.ToString()
-                : CE208Function.DATEM.ToString());
         }
 
         var today = DateTime.Today;
@@ -201,11 +194,23 @@ public class ReaderCE208(IStream stream,
             ? today.AddDays(-ago)
             : today.StartOfAMonth().AddMonths(-ago));
 
-        var index = dates.IndexOf(requested);
-        if (index < 0)
+        if (func is "ENDPE" or "ENMPE")
         {
-            logger?.LogWarning("Requested date {date} not found in {func} archive", requested, func);
-            return ("", 0, 0, 0, 0, 0);
+            // Arxiv sanalari keshini to'ldirish (birinchi so'rovda qurilmadan o'qiladi)
+            var dates = daily ? _dayArchiveDates : _monthArchiveDates;
+            if (dates.Count == 0)
+            {
+                await GetListOfArchiveTimes(daily
+                    ? CE208Function.DATED.ToString()
+                    : CE208Function.DATEM.ToString());
+            }
+
+            var index = dates.IndexOf(requested);
+            if (index < 0)
+            {
+                logger?.LogWarning("Requested date {date} not found in {func} archive", requested, func);
+                return ("", 0, 0, 0, 0, 0);
+            }
         }
 
         // Aktiv - sana bilan, reaktiv - arxiv pozitsiyasi (1-dan) indeksi bilan
@@ -213,8 +218,9 @@ public class ReaderCE208(IStream stream,
         {
             "ENDPE" => await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], requested.ToString("dd.MM.yy")),
             "ENMPE" => await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], requested.ToString("MM.yy")),
-            "ERD" => await SendAndGet(CE30XCommand.R1, $"ERD{index + 1:D2}", [CommonIEC61107.ETX]),
-            _ => await SendAndGet(CE30XCommand.R1, $"ERM{index + 1:D2}", [CommonIEC61107.ETX]),
+            "END" => await SendAndGet(CE30XCommand.R1, $"END{ago:D2}", [CommonIEC61107.ETX]),
+            "ENM" => await SendAndGet(CE30XCommand.R1, $"ENM{ago:D2}", [CommonIEC61107.ETX]),
+            _ => throw new ArgumentException($"Unknown function: {func}", nameof(func)),
         };
 
         var values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
@@ -520,8 +526,8 @@ public class ReaderCE208(IStream stream,
     public string[] GetEndOfDayFunctions() => [CE208Function.ENDPE.ToString()];
     public string[] GetEndOfMonthFunctions() => [CE208Function.ENMPE.ToString()];
     public string[] GetEndOfYearFunctions() => []; // CE208 da yillik arxiv yo'q
-    public string[] GetCurrentDayFunctions() => [CE208Function.ENDPE.ToString()];
-    public string[] GetCurrentMonthFunctions() => [CE208Function.ENMPE.ToString()];
+    public string[] GetCurrentDayFunctions() => [CE208Function.EADPE.ToString()];
+    public string[] GetCurrentMonthFunctions() => [CE208Function.EAMPE.ToString()];
     public string[] GetCurrentYearFunctions() => []; // CE208 da yillik arxiv yo'q
     public string[] GetLoadProfileFunctions() => [CE208Function.GRAPE.ToString(), CE208Function.VPR25.ToString()];
 }
