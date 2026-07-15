@@ -98,26 +98,19 @@ public interface IReader : IDisposable
     /// <param name="daysAgo">Joriy kundan necha kun avval, agar 0 bo'lsa shu kun</param>
     /// <param name="fromRecord">Shu kundagi qaysi yozuvdan o'qish kerakligi</param>
     /// <param name="func">Funksiya. VPR01, VPR02, VPR03, VPR04 funksiyalarni ishlatish kerak.</param>
+    [Obsolete("Use the GetLoadProfiles overload instead")]
     /// <returns></returns>
     Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(ushort daysAgo,
         short fromRecord, string func);
 
     /// <summary>
-    /// Retrieves load profile data for a specified date and function.
+    /// Yuklama profilini o'qish
     /// </summary>
-    /// <remarks>This method retrieves load profile data for a specific date and function, starting
-    /// from the specified record index. The data is returned as a collection of tuples, where each tuple contains a
-    /// load value and its corresponding record index.</remarks>
-    /// <param name="lastReadedDate">The date for which to retrieve the load profiles.</param>
-    /// <param name="deviceDateTime">The starting record index for the data retrieval. Must be a non-negative value.</param>
-    /// <param name="func">The function identifier used to filter the load profiles. Cannot be null or empty.</param>
-    /// <returns>A task that represents the asynchronous operation. The task result contains a tuple with: <list
-    /// type="bullet"> <item> <description>The date associated with the retrieved load profiles.</description>
-    /// </item> <item> <description>An enumerable collection of tuples, where each tuple contains: <list
-    /// type="bullet"> <item><description>A float representing the load value.</description></item>
-    /// <item><description>A short representing the record index.</description></item> </list> </description>
-    /// </item> </list></returns>
-    Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(DateTimeOffset lastReadedDate,
+    /// <param name="lastReadedDate">Oxirgi o'qilgan vaqt</param>
+    /// <param name="deviceDateTime">Qurilma vaqti</param>
+    /// <param name="func">Funksiya</param>
+    /// <returns></returns>
+    Task<IEnumerable<(DateTimeOffset dateTime, double value, short status)>> GetLoadProfiles(DateTimeOffset lastReadedDate,
         DateTimeOffset deviceDateTime, string func);
 
     /// <summary>
