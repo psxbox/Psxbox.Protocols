@@ -156,12 +156,12 @@ namespace Psxbox.CE30XProtocol
             var startIndex = result.AsSpan().IndexOf(STX);
             if (startIndex == -1)
             {
-                throw new Exception($"Kelgan javob noto'g'ri! So'rov: {BitConverter.ToString(sendData)} Javob: {BitConverter.ToString(result)}");
+                throw new Exception($"So'rov: {Encoding.ASCII.GetString(sendData)}, Kelgan javob noto'g'ri! Javob: {BitConverter.ToString(result)}");
             }
             var calcChecksum = Calculators.Cacl7BitSum(result[(startIndex + 1)..]);
 
             if (calcChecksum != checksum)
-                throw new($"Checksum noto'g'ri, kelgan: {checksum}, hisoblangan: {calcChecksum}");
+                throw new Exception($"So'rov: {Encoding.ASCII.GetString(sendData)}, Checksum noto'g'ri, kelgan: {checksum}, hisoblangan: {calcChecksum}");
 
             var resultStr = Encoding.ASCII.GetString(result);
 
@@ -172,10 +172,15 @@ namespace Psxbox.CE30XProtocol
             // "!Contains(func)" tekshiruvidan oldin ajratiladi. Ilgari faqat ERR18 shu
             // tarzda ishlangan; boshqa ERRxx kodlar generic "Kelgan javob noto'g'ri"
             // xatosi bilan tashlanardi va chaqiruvchi kod ERR kodini ajrata olmasdi.
-            if (Regex.IsMatch(resultStr, @"ERR\d+")) return resultStr;
+            var errMatch = Regex.Match(resultStr, @"ERR\d+");
+
+            if (errMatch.Success)
+            {
+                throw new IecQueryException($"So'rov: {Encoding.ASCII.GetString(sendData)}, Xato: {errMatch.Value}");
+            }
 
             if (!resultStr.Contains(func))
-                throw new($"Kelgan javob noto'gri: {resultStr}");
+                throw new Exception($"So'rov: {Encoding.ASCII.GetString(sendData)}, Kelgan javob noto'gri: {resultStr}");
 
             return resultStr;
         }
@@ -200,10 +205,26 @@ namespace Psxbox.CE30XProtocol
                 var text = Encoding.ASCII.GetString(frame);
                 var errMatch = Regex.Match(text, @"ERR\d+");
                 var err = errMatch.Success ? errMatch.Value : text;
-                throw new Exception($"Yozish komandasi rad etildi: {err}");
+                throw new IecQueryException($"So'rov: {Encoding.ASCII.GetString(sendData)}, Xato: {err}");
             }
 
-            throw new Exception($"Yozish komandasiga kutilmagan javob: 0x{first:X2}");
+            throw new Exception($"So'rov: {Encoding.ASCII.GetString(sendData)}, Kutilmagan javob: 0x{first:X2}");
+        }
+    }
+
+    [Serializable]
+    public class IecQueryException : Exception
+    {
+        public IecQueryException()
+        {
+        }
+
+        public IecQueryException(string? message) : base(message)
+        {
+        }
+
+        public IecQueryException(string? message, Exception? innerException) : base(message, innerException)
+        {
         }
     }
 }
