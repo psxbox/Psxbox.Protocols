@@ -16,7 +16,7 @@ namespace Psxbox.CE30XProtocol
             throw new NotSupportedException("CE6850 hisoblagichda to'plangan energiya arxivlari mavjud emas!");
         }
 
-        protected override int ReadCount => 48;
+        public override int LoadProfileCountPerRequest => 48;
         protected override string FormatLoadProfileParams(DateTimeOffset date, int fromRecord, int count)
         {
             return $"{date:d.M}.{fromRecord}.{count}";

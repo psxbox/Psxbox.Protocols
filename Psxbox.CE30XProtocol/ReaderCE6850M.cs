@@ -137,8 +137,23 @@ public class ReaderCE6850M(IStream stream,
         var index = daily ? _dayArchiveDates.IndexOf(agoDay) : _monthArchiveDates.IndexOf(agoDay);
 
         if (index < 0) return ("", 0, 0, 0, 0, 0);
-        var responceStr = await SendAndGet(CE30XCommand.R1, func, CommonIEC61107.DEFAULT_END, $"{index + 1}");
-        var values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
+
+        string[] values;
+
+        try
+        {
+            var responseStr = await SendAndGet(CE30XCommand.R1, func, CommonIEC61107.DEFAULT_END, $"{index + 1}");
+            values = CommonIEC61107.ParseResponseValues(responseStr).ToArray();
+        }
+        catch (IecQueryException ex) when (ex.Message.Contains("ERR18"))
+        {
+            logger?.LogWarning("Received ERR18 for {func} with index {index}. Returning empty result.", func, index + 1);
+            return ("", 0, 0, 0, 0, 0);
+        }
+        catch (Exception)
+        {
+            throw;
+        }
 
         return (
             agoDay.ToString("d.M.yy"),
@@ -276,19 +291,25 @@ public class ReaderCE6850M(IStream stream,
         CE6850MFunction.GRAQI.ToString()
     ];
 
-    protected virtual int ReadCount => 24; // Default read count for load profiles, can be overridden
+    public override int LoadProfilePeriodInMinutes => 30;
+
+    public override int LoadProfileCountPerRequest => 24;
+
     protected virtual string FormatLoadProfileParams(DateTimeOffset date, int fromRecord, int count)
     {
         return $"{date:d.M.yy}.{fromRecord}.{count}";
     }
 
-    public async Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(DateTimeOffset lastReadedDate,
+    public async Task<IEnumerable<(DateTimeOffset dateTime, double value, short status)>> GetLoadProfiles(DateTimeOffset lastReadedDate,
         DateTimeOffset deviceDateTime, string func)
     {
-        logger?.LogDebug("Getting load profiles {func}, Date: {date}, Device date: {index}", func, lastReadedDate, deviceDateTime);
+        if (logger?.IsEnabled(LogLevel.Debug) ?? false)
+        {
+            logger.LogDebug("Getting load profiles {func}, Date: {date}, Device date: {index}", func, lastReadedDate, deviceDateTime);
+        }
 
-        var fromRecord = (short)(lastReadedDate.Hour * 2 + (lastReadedDate.Minute / 30) + 1);
-        int recCount = 48 - (fromRecord - 1);
+        var fromRecord = (short)(lastReadedDate.Hour * 2 + (lastReadedDate.Minute / LoadProfilePeriodInMinutes) + 1);
+        int recCount = LoadProfileCountPerRequest - (fromRecord - 1);
         var daysAgo = (int)(deviceDateTime.StartOfDay() - lastReadedDate.StartOfDay()).TotalDays;
 
         if (lastReadedDate > deviceDateTime)
@@ -299,21 +320,25 @@ public class ReaderCE6850M(IStream stream,
         if (daysAgo == 0)
         {
             TimeSpan timeSpan = deviceDateTime - lastReadedDate;
-            recCount = (int)timeSpan.TotalMinutes / 30;
+            recCount = (int)timeSpan.TotalMinutes / LoadProfilePeriodInMinutes;
         }
-        if (recCount > ReadCount) recCount = ReadCount;
+        if (recCount > LoadProfileCountPerRequest) recCount = LoadProfileCountPerRequest;
 
         var responceStr = await SendAndGet(CE30XCommand.R1, func, CommonIEC61107.DEFAULT_END, FormatLoadProfileParams(lastReadedDate, fromRecord, recCount));
         string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
 
-        List<(double, short)> data = [];
+        List<(DateTimeOffset dateTime, double value, short status)> data = [];
 
-        foreach (var item in values)
+        for (int i = 0; i < values.Length; i++)
         {
-            data.Add((double.Parse(item, CultureInfo.InvariantCulture), 0));
+            var value = double.Parse(values[i], CultureInfo.InvariantCulture);
+            var status = (short)0;
+            var recordDateTime = GetRecordDateTime(lastReadedDate, fromRecord, i);
+
+            data.Add((recordDateTime, value, status));
         }
 
-        return (string.Empty, data);
+        return data;
     }
 
     public string[] GetEndOfDayFunctions() =>

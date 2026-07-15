@@ -12,6 +12,10 @@ public class ReaderCE303(IStream stream,
 {
     public const string READER_TYPE = "CE303";
 
+    public override int LoadProfilePeriodInMinutes => 30;
+
+    public override int LoadProfileCountPerRequest => 48;
+
     public virtual async Task<(double a, double b, double c)> GetCorIU()
     {
         logger?.LogDebug("Getting COR UU");
@@ -52,12 +56,26 @@ public class ReaderCE303(IStream stream,
             _ => throw new Exception($"Unknown function: {func}"),
         };
 
-        string responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], $"{agoStr}");
-        string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
+        string[] values;
+
+        try
+        {
+            var responseStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], $"{agoStr}");
+            values = CommonIEC61107.ParseResponseValues(responseStr).ToArray();
+        }
+        catch (IecQueryException ex) when (ex.Message.Contains("ERR18"))
+        {
+            logger?.LogWarning("Received ERR18 for {func} with agoStr {agoStr}. Returning empty result.", func, agoStr);
+            return (string.Empty, default, default, default, default, default);
+        }
+        catch (Exception)
+        {
+            throw;
+        }
 
         if (values.Length == 0 || values[0] == "ERR18")
         {
-            return ("", 0, 0, 0, 0, 0);
+            return (string.Empty, default, default, default, default, default);
         }
 
         string date = agoStr;
@@ -179,13 +197,16 @@ public class ReaderCE303(IStream stream,
         CE303Function.GRAQI.ToString()
     ];
 
-    public async Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(DateTimeOffset lastReadedDate,
+    public async Task<IEnumerable<(DateTimeOffset dateTime, double value, short status)>> GetLoadProfiles(DateTimeOffset lastReadedDate,
         DateTimeOffset deviceDateTime, string func)
     {
-        logger?.LogDebug("Getting load profiles {func}, Date: {date}, Device date: {index}", func, lastReadedDate, deviceDateTime);
+        if (logger?.IsEnabled(LogLevel.Debug) ?? false)
+        {
+            logger.LogDebug("Getting load profiles {func}, Date: {date}, Device date: {index}", func, lastReadedDate, deviceDateTime);
+        }
 
-        var fromRecord = (short)(lastReadedDate.Hour * 2 + (lastReadedDate.Minute / 30) + 1);
-        int recCount = 48 - (fromRecord - 1);
+        var fromRecord = (short)(lastReadedDate.Hour * 2 + (lastReadedDate.Minute / LoadProfilePeriodInMinutes) + 1);
+        int recCount = LoadProfileCountPerRequest - (fromRecord - 1);
         var daysAgo = (int)(deviceDateTime.StartOfDay() - lastReadedDate.StartOfDay()).TotalDays;
 
         if (lastReadedDate > deviceDateTime)
@@ -196,27 +217,31 @@ public class ReaderCE303(IStream stream,
         if (daysAgo == 0)
         {
             TimeSpan timeSpan = deviceDateTime - lastReadedDate;
-            recCount = (int)timeSpan.TotalMinutes / 30;
+            recCount = (int)timeSpan.TotalMinutes / LoadProfilePeriodInMinutes;
         }
-        if (recCount > 48) recCount = 48;
+        if (recCount > LoadProfileCountPerRequest) recCount = LoadProfileCountPerRequest;
 
         var responceStr = await SendAndGet(CE30XCommand.R1, func, CommonIEC61107.DEFAULT_END, FormatLoadProfileParams(lastReadedDate, fromRecord, recCount));
         string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
 
-        List<(double, short)> data = [];
+        List<(DateTimeOffset dateTime, double value, short status)> data = [];
 
-        foreach (var item in values)
+        for (int i = 0; i < values.Length; i++)
         {
-            data.Add((double.Parse(item, CultureInfo.InvariantCulture), 0));
+            var value = double.Parse(values[i], CultureInfo.InvariantCulture);
+            var status = (short)0; // Assuming status is not provided in the response
+            var recordDateTime = GetRecordDateTime(lastReadedDate, fromRecord, i);
+
+            data.Add((recordDateTime, value, status));
         }
 
-        return (string.Empty, data);
+        return data;
     }
 
     protected virtual string FormatLoadProfileParams(DateTimeOffset date, int fromRecord, int count)
     {
         var result = $"{date:dd.MM.yy}";
-        if (fromRecord == 1 && count == 48)
+        if (fromRecord == 1 && count == LoadProfileCountPerRequest)
         {
             return result;
         }

@@ -12,7 +12,9 @@ public class ReaderCE308(IStream stream,
                          ILogger? logger = null) : BaseReader(stream, id, password, logger), IReader
 {
     public const string READER_TYPE = "CE308";
-
+    private Dictionary<ArchiveType, List<DateOnly>> archiveTimesCache = new();
+    public override int LoadProfilePeriodInMinutes => 30;
+    public override int LoadProfileCountPerRequest => 48;
 
     public async Task<DateTimeOffset> GetWatch()
     {
@@ -93,8 +95,6 @@ public class ReaderCE308(IStream stream,
         return (values[0], values[1], values[2]);
     }
 
-    private Dictionary<ArchiveType, List<DateOnly>> archiveTimesCache = new();
-
     public async Task<(string date, double tSum, double t1, double t2, double t3, double t4)> GetEndOfPeriod(ushort ago,
         string func, params string[] args)
     {
@@ -138,12 +138,27 @@ public class ReaderCE308(IStream stream,
             archiveIndex = (ushort)indexOfRequestedDate;
         }
 
-        string responseStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX],
-                    $"{archiveIndex}.{accPeriod}", "F");
-        string[] values = CommonIEC61107.ParseResponseValues(responseStr).ToArray();
+        string responseStr;
+        string[] values;
+
+        try
+        {
+            responseStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX],
+                        $"{archiveIndex}.{accPeriod}", "F");
+            values = CommonIEC61107.ParseResponseValues(responseStr).ToArray();
+        }
+        catch (IecQueryException ex) when (ex.Message.Contains("ERR18"))
+        {
+            logger?.LogWarning("Received ERR18 for {func} with archiveIndex {archiveIndex} and accPeriod {accPeriod}. Returning empty result.", func, archiveIndex, accPeriod);
+            return (string.Empty, default, default, default, default, default);
+        }
+        catch (Exception)
+        {
+            throw;
+        }
 
         if (values.Length == 0 || values[0] == "ERR18") return (string.Empty, default, default, default, default, default);
-
+        
         try
         {
             return ParseEndOfPeriod(values, archiveType);
@@ -219,7 +234,7 @@ public class ReaderCE308(IStream stream,
     {
         logger?.LogDebug("Getting load profiles {func}. Days ago: {ago}", func, daysAgo);
 
-        int recCount = 48 - (fromRecord - 1);
+        int recCount = LoadProfileCountPerRequest - (fromRecord - 1);
 
         var responceStr = await SendAndGet(CE30XCommand.R1, func, CommonIEC61107.DEFAULT_END, daysAgo.ToString(),
             fromRecord.ToString(), recCount.ToString());
@@ -229,24 +244,31 @@ public class ReaderCE308(IStream stream,
 
         string[] dateAndValues = values[0].Split(',');
         string date = dateAndValues[0];
+        var datetime = new DateTimeOffset(DateOnly.ParseExact(date, "dd.MM.yy", CultureInfo.InvariantCulture), TimeOnly.MinValue, TimeSpan.Zero);
         data.Add((double.Parse(dateAndValues[1], CultureInfo.InvariantCulture), short.Parse(dateAndValues[2])));
 
-        foreach (var item in values[1..])
+        for (int i = 0; i < values[1..].Length; i++)
         {
+            string? item = values[1..][i];
             var splitted = item.Split(',');
+            var recordDateTime = GetRecordDateTime(datetime, fromRecord, i);
+
             data.Add((double.Parse(splitted[0], CultureInfo.InvariantCulture), short.Parse(splitted[1])));
         }
 
         return (date, data);
     }
 
-    public async Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(DateTimeOffset lastReadedDate,
+    public virtual async Task<IEnumerable<(DateTimeOffset dateTime, double value, short status)>> GetLoadProfiles(DateTimeOffset lastReadedDate,
         DateTimeOffset deviceDateTime, string func)
     {
-        logger?.LogDebug("Getting load profiles {func}, Date: {date}, Device date: {index}", func, lastReadedDate, deviceDateTime);
+        if (logger?.IsEnabled(LogLevel.Debug) ?? false)
+        {
+            logger.LogDebug("Getting load profiles {func}, Date: {date}, Device date: {index}", func, lastReadedDate, deviceDateTime);
+        }
 
-        var fromRecord = (short)(lastReadedDate.Hour * 2 + (lastReadedDate.Minute / 30) + 1);
-        int recCount = 48 - (fromRecord - 1);
+        var fromRecord = (short)(lastReadedDate.Hour * 2 + (lastReadedDate.Minute / LoadProfilePeriodInMinutes) + 1);
+        int recCount = LoadProfileCountPerRequest - (fromRecord - 1);
         var daysAgo = (int)(deviceDateTime.StartOfDay() - lastReadedDate.StartOfDay()).TotalDays;
 
         if (lastReadedDate > deviceDateTime)
@@ -257,27 +279,36 @@ public class ReaderCE308(IStream stream,
         if (daysAgo == 0)
         {
             TimeSpan timeSpan = deviceDateTime - lastReadedDate;
-            recCount = (int)timeSpan.TotalMinutes / 30;
+            recCount = (int)timeSpan.TotalMinutes / LoadProfilePeriodInMinutes;
         }
-        if (recCount > 48) recCount = 48;
+        if (recCount > LoadProfileCountPerRequest) recCount = LoadProfileCountPerRequest;
 
-        var responceStr = await SendAndGet(CE30XCommand.R1, func, CommonIEC61107.DEFAULT_END, daysAgo.ToString(),
+        var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], daysAgo.ToString(),
             fromRecord.ToString(), recCount.ToString());
-        string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
+        string[] values = [.. CommonIEC61107.ParseResponseValues(responceStr)];
 
-        List<(double, short)> data = [];
+        List<(DateTimeOffset dateTime, double value, short status)> data = [];
 
         string[] dateAndValues = values[0].Split(',');
         string dateFromDevice = dateAndValues[0];
-        data.Add((double.Parse(dateAndValues[1], CultureInfo.InvariantCulture), short.Parse(dateAndValues[2])));
+        var datetimeFromDevice = new DateTimeOffset(DateOnly.ParseExact(dateFromDevice, "dd.MM.yy", CultureInfo.InvariantCulture), TimeOnly.MinValue, TimeSpan.Zero);
+        
+        data.Add((GetRecordDateTime(datetimeFromDevice, fromRecord, 0),
+            double.Parse(dateAndValues[1], CultureInfo.InvariantCulture), 
+            short.Parse(dateAndValues[2])));
 
-        foreach (var item in values[1..])
+        for (int i = 0; i < values[1..].Length; i++)
         {
+            string? item = values[1..][i];
             var splitted = item.Split(',');
-            data.Add((double.Parse(splitted[0], CultureInfo.InvariantCulture), short.Parse(splitted[1])));
+            var value = double.Parse(splitted[0], CultureInfo.InvariantCulture);
+            var status = short.Parse(splitted[1]);
+            var recordDateTime = GetRecordDateTime(datetimeFromDevice, fromRecord, i + 1);
+
+            data.Add((recordDateTime, value, status));
         }
 
-        return (dateFromDevice, data);
+        return data;
     }
 
     public async Task<IEnumerable<(ushort recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)

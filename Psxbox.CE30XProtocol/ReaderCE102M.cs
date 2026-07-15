@@ -10,7 +10,11 @@ public class ReaderCE102M(IStream stream,
                           ILogger? logger = null) : BaseReader(stream, id, password, logger), IReader
 {
     public const string READER_TYPE = "CE102M";
-   
+
+    public override int LoadProfilePeriodInMinutes => throw new NotImplementedException();
+
+    public override int LoadProfileCountPerRequest => throw new NotImplementedException();
+
     public async Task<(double sum, double t1, double t2, double t3, double t4)> GetActiveEnergyIn(
         bool forCurrentPeriod = false, string period = "day")
     {
@@ -170,7 +174,7 @@ public class ReaderCE102M(IStream stream,
         throw new NotImplementedException();
     }
 
-    public Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(DateTimeOffset lastReadedDate,
+    public Task<IEnumerable<(DateTimeOffset dateTime, double value, short status)>> GetLoadProfiles(DateTimeOffset lastReadedDate,
         DateTimeOffset deviceDateTime, string func)
     {
         throw new NotImplementedException();

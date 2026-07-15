@@ -18,6 +18,13 @@ public class ReaderCE208(IStream stream,
     private readonly List<DateOnly> _monthArchiveDates = [];
     private int? _recordsPerDay;
 
+    private const int PowerStatusReadCount = 10; // jurnaldan o'qiladigan oxirgi yozuvlar soni
+
+    public override int LoadProfilePeriodInMinutes => 30;
+
+    public override int LoadProfileCountPerRequest => throw new NotImplementedException(); // TODO: Aniqlash kerak
+
+
     // === O'lchov metodlari (Task 5) ===
 
     // MUHIM: DEFAULT_END ([0x0D,0x0A,ETX]) o'rniga [ETX] ishlatiladi. Real qurilmada
@@ -213,17 +220,32 @@ public class ReaderCE208(IStream stream,
             }
         }
 
-        // Aktiv - sana bilan, reaktiv - arxiv pozitsiyasi (1-dan) indeksi bilan
-        var responceStr = func switch
-        {
-            "ENDPE" => await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], requested.ToString("dd.MM.yy")),
-            "ENMPE" => await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], requested.ToString("MM.yy")),
-            "END" => await SendAndGet(CE30XCommand.R1, $"END{ago:D2}", [CommonIEC61107.ETX]),
-            "ENM" => await SendAndGet(CE30XCommand.R1, $"ENM{ago:D2}", [CommonIEC61107.ETX]),
-            _ => throw new ArgumentException($"Unknown function: {func}", nameof(func)),
-        };
+        string[] values;
 
-        var values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
+        // Aktiv - sana bilan, reaktiv - arxiv pozitsiyasi (1-dan) indeksi bilan
+        try
+        {
+            var responseStr = func switch
+            {
+                "ENDPE" => await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], requested.ToString("dd.MM.yy")),
+                "ENMPE" => await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], requested.ToString("MM.yy")),
+                "END" => await SendAndGet(CE30XCommand.R1, $"END{ago:D2}", [CommonIEC61107.ETX]),
+                "ENM" => await SendAndGet(CE30XCommand.R1, $"ENM{ago:D2}", [CommonIEC61107.ETX]),
+                _ => throw new ArgumentException($"Unknown function: {func}", nameof(func)),
+            };
+    
+            values = CommonIEC61107.ParseResponseValues(responseStr).ToArray();
+        }
+        catch (IecQueryException ex) when (ex.Message.Contains("ERR18"))
+        {
+            logger?.LogWarning("Received ERR18 for {func} with requested date {requested}. Returning empty result.", func, requested);
+            return ("", 0, 0, 0, 0, 0);
+        }
+        catch (Exception)
+        {
+            throw;
+        }
+
         if (values.Length == 0 || values[0].StartsWith("ERR"))
         {
             return ("", 0, 0, 0, 0, 0);
@@ -347,15 +369,19 @@ public class ReaderCE208(IStream stream,
         var recordsPerDay = await GetRecordsPerDay();
         int recCount = recordsPerDay - (fromRecord - 1);
         var date = DateOnly.FromDateTime(DateTime.Today.AddDays(-daysAgo));
+        var profileRecords = await ReadProfileRecords(func, date, fromRecord, recCount);
 
-        return await ReadProfileRecords(func, date, fromRecord, recCount);
+        return (date.ToString("dd.MM.yy"), profileRecords.Select(r => (r.value, r.status)));
     }
 
-    public async Task<(string date, IEnumerable<(double, short)> data)> GetLoadProfiles(
+    public async Task<IEnumerable<(DateTimeOffset dateTime, double value, short status)>> GetLoadProfiles(
         DateTimeOffset lastReadedDate, DateTimeOffset deviceDateTime, string func)
     {
-        logger?.LogDebug("Getting load profiles {func}, Date: {date}, Device date: {deviceDate}",
-            func, lastReadedDate, deviceDateTime);
+        if (logger?.IsEnabled(LogLevel.Debug) ?? false)
+        {
+            logger.LogDebug("Getting load profiles {func}, Date: {date}, Device date: {deviceDate}",
+                func, lastReadedDate, deviceDateTime);
+        }
 
         if (lastReadedDate > deviceDateTime)
         {
@@ -380,7 +406,7 @@ public class ReaderCE208(IStream stream,
         return await ReadProfileRecords(func, date, fromRecord, recCount);
     }
 
-    private async Task<(string date, IEnumerable<(double, short)> data)> ReadProfileRecords(
+    private async Task<IEnumerable<(DateTimeOffset dateTime, double value, short status)>> ReadProfileRecords(
         string func, DateOnly date, short fromRecord, int recCount)
     {
         // OGOHLANTIRISH: DATED/DATEM arxiv sanalarida qurilma to'ldirilmagan joylarni
@@ -397,13 +423,19 @@ public class ReaderCE208(IStream stream,
         var values = CommonIEC61107.ParseResponseValues(responceStr)
             .Where(v => !string.IsNullOrWhiteSpace(v) && !v.StartsWith("ERR"))
             .ToArray();
+        
+        var readDate = new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(5));
 
-        List<(double, short)> data = [];
-        foreach (var item in values)
+        List<(DateTimeOffset dateTime, double value, short status)> data = [];
+        for (int i = 0; i < values.Length; i++)
         {
+            string? item = values[i];
+            var recordDateTime = GetRecordDateTime(readDate, fromRecord, i);
+
             try
             {
-                data.Add(ParseProfileRecord(item));
+                var (value, flags) = ParseProfileRecord(item);
+                data.Add((recordDateTime, value, flags));
             }
             catch (Exception ex)
             {
@@ -411,10 +443,8 @@ public class ReaderCE208(IStream stream,
             }
         }
 
-        return (date.ToString("dd.MM.yy"), data);
+        return data;
     }
-
-    private const int PowerStatusReadCount = 10; // jurnaldan o'qiladigan oxirgi yozuvlar soni
 
     /// <summary>
     /// Jurnal yozuvini parse qiladi. Format: "dd-MM-yy;HH:mm;XX".
@@ -530,4 +560,5 @@ public class ReaderCE208(IStream stream,
     public string[] GetCurrentMonthFunctions() => [CE208Function.EAMPE.ToString()];
     public string[] GetCurrentYearFunctions() => []; // CE208 da yillik arxiv yo'q
     public string[] GetLoadProfileFunctions() => [CE208Function.GRAPE.ToString(), CE208Function.VPR25.ToString()];
+
 }
