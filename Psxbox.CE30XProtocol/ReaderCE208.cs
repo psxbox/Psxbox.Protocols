@@ -559,6 +559,6 @@ public class ReaderCE208(IStream stream,
     public string[] GetCurrentDayFunctions() => [CE208Function.EADPE.ToString()];
     public string[] GetCurrentMonthFunctions() => [CE208Function.EAMPE.ToString()];
     public string[] GetCurrentYearFunctions() => []; // CE208 da yillik arxiv yo'q
-    public string[] GetLoadProfileFunctions() => [CE208Function.GRAPE.ToString(), CE208Function.VPR25.ToString()];
+    public string[] GetLoadProfileFunctions() => [CE208Function.GRAPE.ToString()];
 
 }
