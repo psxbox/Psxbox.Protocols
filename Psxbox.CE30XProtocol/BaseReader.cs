@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Psxbox.Streams;
+using Psxbox.Utils.Helpers;
 using System.Globalization;
 
 namespace Psxbox.CE30XProtocol;
@@ -10,9 +11,11 @@ public abstract class BaseReader(IStream stream, string id, string password = "7
     protected readonly string id = id;
     protected readonly string password = password;
     protected readonly ILogger? logger = logger;
+    public string ID => id;
     private bool disposedValue;
 
-    public string ID => id;
+    abstract public int LoadProfilePeriodInMinutes { get; }
+    abstract public int LoadProfileCountPerRequest { get; }
 
     public async Task<bool> Connect()
     {
@@ -60,6 +63,13 @@ public abstract class BaseReader(IStream stream, string id, string password = "7
         }
 
         return resultStr;
+    }
+
+    protected virtual DateTimeOffset GetRecordDateTime(DateTimeOffset dateTimeOffset, int fromRecord, int recordIndex)
+    {
+        var minutes = (fromRecord - 1 + recordIndex) * LoadProfilePeriodInMinutes;
+        var result = dateTimeOffset.StartOfDay().AddMinutes(minutes);
+        return result;
     }
 
     protected static double[] ParseDoubleValues(string response)
