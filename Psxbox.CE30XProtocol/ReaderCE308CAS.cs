@@ -76,8 +76,10 @@ public class ReaderCE308CAS(IStream stream,
         {
             throw new Exception("Oxirgi o'qilgan vaqt qurilma vaqtidan katta");
         }
+
+        var fromRecord = LoadProfileCountPerRequest * (chunkIndex - 1) + 1;
         
-        var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], chunkIndex.ToString(), LoadProfileCountPerRequest.ToString());
+        var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], fromRecord.ToString(), LoadProfileCountPerRequest.ToString());
         string[] values = [.. CommonIEC61107.ParseResponseValues(responceStr)];
 
         List<(DateTimeOffset dateTime, double value, short status)> data = [];
@@ -86,7 +88,7 @@ public class ReaderCE308CAS(IStream stream,
         {
             var splitted = item.Split(',');
             var dateFromDevice = DateOnly.ParseExact(splitted[0], "dd.MM.yy", CultureInfo.InvariantCulture);
-            var timeFromDevice = TimeOnly.ParseExact(splitted[1], "hh:mm", CultureInfo.InvariantCulture);
+            var timeFromDevice = TimeOnly.ParseExact(splitted[1], ["HH:mm", "HH:mm:ss"], CultureInfo.InvariantCulture, DateTimeStyles.None);
             var dateTimeFromDevice = new DateTimeOffset(dateFromDevice.ToDateTime(timeFromDevice), TimeSpan.FromHours(5));
             
             var value = double.Parse(splitted[3], CultureInfo.InvariantCulture);
