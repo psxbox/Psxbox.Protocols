@@ -20,9 +20,11 @@ public class ReaderCE208(IStream stream,
 
     private const int PowerStatusReadCount = 10; // jurnaldan o'qiladigan oxirgi yozuvlar soni
 
-    public override int LoadProfilePeriodInMinutes => 30;
+    public override int LoadProfilePeriodInMinutes => 1440 / 
+        (_recordsPerDay ?? GetRecordsPerDay().GetAwaiter().GetResult()); // TODO: Asinxron bo'lishi kerak, lekin interfeysni o'zgartirish kerak
 
-    public override int LoadProfileCountPerRequest => throw new NotImplementedException(); // TODO: Aniqlash kerak
+    public override int LoadProfileCountPerRequest => 
+        _recordsPerDay ?? GetRecordsPerDay().GetAwaiter().GetResult(); // TODO: Asinxron bo'lishi kerak, lekin interfeysni o'zgartirish kerak
 
 
     // === O'lchov metodlari (Task 5) ===
