@@ -135,7 +135,7 @@ namespace Psxbox.CE30XProtocol
             var cmd = Encoding.ASCII.GetBytes($"{(char)SOH}B0{(char)ETX}u");
             stream.Flush();
             await stream.WriteAsync(cmd);
-            await Task.Delay(1000);
+            await Task.Delay(2000);
             stream.Flush();
         }
 

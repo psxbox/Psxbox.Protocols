@@ -21,6 +21,7 @@ public abstract class BaseReader(IStream stream, string id, string password = "7
     {
         try
         {
+            await Disconnect();
             return await CommonIEC61107.ConnectAndAuthorize(stream, id, password);
         }
         catch (Exception ex)
