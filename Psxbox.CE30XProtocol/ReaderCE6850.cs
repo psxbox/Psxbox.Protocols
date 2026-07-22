@@ -25,10 +25,10 @@ namespace Psxbox.CE30XProtocol
         public override async Task<DateTimeOffset> GetWatch()
         {
             logger?.LogDebug("Getting watch");
-            var responceStr = await SendAndGet(CE30XCommand.R1, CE6850MFunction.DATE_.ToString(), CommonIEC61107.DEFAULT_END);
+            var responceStr = await SendAndGet(CE30XCommand.R1, CE6850MFunction.DATE_.ToString(), [CommonIEC61107.ETX]);
             var values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
             var date = DateOnly.ParseExact(values[0][3..], "dd.MM.yy");
-            responceStr = await SendAndGet(CE30XCommand.R1, CE6850MFunction.TIME_.ToString(), CommonIEC61107.DEFAULT_END);
+            responceStr = await SendAndGet(CE30XCommand.R1, CE6850MFunction.TIME_.ToString(), [CommonIEC61107.ETX]);
             values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
             var time = TimeOnly.ParseExact(values[0], "HH:mm:ss");
 

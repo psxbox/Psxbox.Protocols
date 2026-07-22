@@ -19,7 +19,7 @@ public class ReaderCE102M(IStream stream,
         bool forCurrentPeriod = false, string period = "day")
     {
         logger?.LogDebug("Getting accumulated active power");
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE303Function.ET0PE.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE303Function.ET0PE.ToString(), [CommonIEC61107.ETX]);
         string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
         double sum = double.Parse(values[0], CultureInfo.InvariantCulture);
         double t1 = double.Parse(values[1], CultureInfo.InvariantCulture);
@@ -61,7 +61,7 @@ public class ReaderCE102M(IStream stream,
     public async Task<(double a, double b, double c)> GetCurrent()
     {
         logger?.LogDebug("Getting current");
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE102MFunction.CURRE.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE102MFunction.CURRE.ToString(), [CommonIEC61107.ETX]);
         string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
         double a = double.Parse(values[0], CultureInfo.InvariantCulture);
 
@@ -102,7 +102,7 @@ public class ReaderCE102M(IStream stream,
     public async Task<double> GetFrequency()
     {
         logger?.LogDebug("Getting feruency");
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE102MFunction.FREQU.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE102MFunction.FREQU.ToString(), [CommonIEC61107.ETX]);
         string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
         double result = double.Parse(values[0], CultureInfo.InvariantCulture);
         return result;
@@ -122,7 +122,7 @@ public class ReaderCE102M(IStream stream,
     public async Task<(double a, double b, double c, double sum)> GetPowerA()
     {
         logger?.LogDebug("Getting active power kWt");
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE102MFunction.POWEP.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE102MFunction.POWEP.ToString(), [CommonIEC61107.ETX]);
         string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
         double sum = double.Parse(values[0], CultureInfo.InvariantCulture);
 
@@ -147,7 +147,7 @@ public class ReaderCE102M(IStream stream,
     public async Task<(double a, double b, double c)> GetVoltage()
     {
         logger?.LogDebug("Getting voltage");
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE303Function.VOLTA.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE303Function.VOLTA.ToString(), [CommonIEC61107.ETX]);
         string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
         double a = double.Parse(values[0], CultureInfo.InvariantCulture);
 
@@ -157,7 +157,7 @@ public class ReaderCE102M(IStream stream,
     public async Task<DateTimeOffset> GetWatch()
     {
         logger?.LogDebug("Getting watch");
-        var responceStr = await SendAndGet(CE30XCommand.R1, CE308Function.WATCH.ToString(), CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE308Function.WATCH.ToString(), [CommonIEC61107.ETX]);
 
         string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray()[0].Split(',', StringSplitOptions.RemoveEmptyEntries);
 

@@ -82,7 +82,7 @@ public abstract class BaseReader(IStream stream, string id, string password = "7
 
     protected async Task<(double sum, double t1, double t2, double t3, double t4)> GetEnergyValues(string func)
     {
-        var responceStr = await SendAndGet(CE30XCommand.R1, func, CommonIEC61107.DEFAULT_END);
+        var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX]);
         var values = ParseDoubleValues(responceStr);
         return (values[0], values[1], values[2], values[3], values[4]);
     }
