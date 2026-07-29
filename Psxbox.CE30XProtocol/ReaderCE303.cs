@@ -126,6 +126,66 @@ public class ReaderCE303(IStream stream,
         return (values[0], values[1], values[2], sum);
     }
 
+    /// <summary>
+    /// Summa aktiv quvvat, kW (POWEP). Javobda 1 ta qiymat keladi.
+    /// </summary>
+    public virtual async Task<double> GetPowerASum()
+    {
+        logger?.LogDebug("Getting active power sum, kW");
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE303Function.POWEP.ToString(), [CommonIEC61107.ETX]);
+        var values = ParseDoubleValues(responceStr);
+        EnsureValueCount(values, 1, CE303Function.POWEP.ToString());
+        return values[0];
+    }
+
+    /// <summary>
+    /// Reaktiv quvvat kirish/chiqish, kVar (POWEQ). Javobda 2 ta qiymat keladi: + va -.
+    /// </summary>
+    public virtual async Task<(double inValue, double outValue)> GetPowerRInOut()
+    {
+        logger?.LogDebug("Getting reactive power in/out, kVar");
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE303Function.POWEQ.ToString(), [CommonIEC61107.ETX]);
+        var values = ParseDoubleValues(responceStr);
+        EnsureValueCount(values, 2, CE303Function.POWEQ.ToString());
+        return (values[0], values[1]);
+    }
+
+    /// <summary>
+    /// Quvvat koeffitsienti (COS_f). Javobda 4 ta qiymat: summa, A, B, C.
+    /// </summary>
+    public virtual async Task<(double sum, double a, double b, double c)> GetCosF()
+    {
+        logger?.LogDebug("Getting power factor COS_f");
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE303Function.COS_f.ToString(), [CommonIEC61107.ETX]);
+        var values = ParseDoubleValues(responceStr);
+        EnsureValueCount(values, 4, CE303Function.COS_f.ToString());
+        return (values[0], values[1], values[2], values[3]);
+    }
+
+    /// <summary>
+    /// Tangens fi (TAN_f). Javobda 4 ta qiymat: summa, A, B, C.
+    /// </summary>
+    public virtual async Task<(double sum, double a, double b, double c)> GetTanF()
+    {
+        logger?.LogDebug("Getting tangent TAN_f");
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE303Function.TAN_f.ToString(), [CommonIEC61107.ETX]);
+        var values = ParseDoubleValues(responceStr);
+        EnsureValueCount(values, 4, CE303Function.TAN_f.ToString());
+        return (values[0], values[1], values[2], values[3]);
+    }
+
+    /// <summary>
+    /// Javobdagi qiymatlar soni kutilganidan farq qilsa tushunarli xato tashlaydi.
+    /// </summary>
+    private static void EnsureValueCount(double[] values, int expected, string func)
+    {
+        if (values.Length != expected)
+        {
+            throw new IecQueryException(
+                $"{func}: {expected} ta qiymat kutilgan edi, {values.Length} ta keldi");
+        }
+    }
+
     public Task<(double a, double b, double c, double sum)> GetPowerS()
     {
         throw new NotImplementedException("This function is not implemented in CE303 reader. Please refer to the manual for more details");

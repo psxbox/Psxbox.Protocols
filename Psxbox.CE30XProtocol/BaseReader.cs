@@ -17,7 +17,7 @@ public abstract class BaseReader(IStream stream, string id, string password = "7
     abstract public int LoadProfilePeriodInMinutes { get; }
     abstract public int LoadProfileCountPerRequest { get; }
 
-    public async Task<bool> Connect()
+    public virtual async Task<bool> Connect()
     {
         try
         {
@@ -31,7 +31,7 @@ public abstract class BaseReader(IStream stream, string id, string password = "7
         }
     }
 
-    public async Task Disconnect()
+    public virtual async Task Disconnect()
     {
         await CommonIEC61107.Disconnect(stream);
     }
