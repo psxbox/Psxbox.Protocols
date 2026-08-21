@@ -73,7 +73,7 @@ public class ReaderCE303(IStream stream,
             throw;
         }
 
-        if (values.Length == 0 || values[0] == "ERR18")
+        if (values.Length == 0)
         {
             return (string.Empty, default, default, default, default, default);
         }

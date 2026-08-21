@@ -41,7 +41,6 @@ public class ReaderCE208(IStream stream,
     {
         logger?.LogDebug("Getting watch");
         var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.WATCH.ToString(), [CommonIEC61107.ETX]);
-        ThrowIfErrorResponse(responceStr, CE208Function.WATCH.ToString());
 
         // Javob formati: (HH:mm:ss,D.dd.MM.yy,s) - D hafta kuni, s mavsum belgisi
         string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray()[0]
@@ -58,7 +57,6 @@ public class ReaderCE208(IStream stream,
     {
         logger?.LogDebug("Getting frequency");
         var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.FREQU.ToString(), [CommonIEC61107.ETX]);
-        ThrowIfErrorResponse(responceStr, CE208Function.FREQU.ToString());
         var values = ParseDoubleValues(responceStr);
         return values[0];
     }
@@ -67,7 +65,6 @@ public class ReaderCE208(IStream stream,
     {
         logger?.LogDebug("Getting current");
         var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.CURRE.ToString(), [CommonIEC61107.ETX]);
-        ThrowIfErrorResponse(responceStr, CE208Function.CURRE.ToString());
         var values = ParseDoubleValues(responceStr);
         return (values[0], 0, 0); // bir fazali
     }
@@ -76,7 +73,6 @@ public class ReaderCE208(IStream stream,
     {
         logger?.LogDebug("Getting voltage");
         var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.VOLTA.ToString(), [CommonIEC61107.ETX]);
-        ThrowIfErrorResponse(responceStr, CE208Function.VOLTA.ToString());
         var values = ParseDoubleValues(responceStr);
         return (values[0], 0, 0); // bir fazali
     }
@@ -85,7 +81,6 @@ public class ReaderCE208(IStream stream,
     {
         logger?.LogDebug("Getting active power kWt");
         var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.POWEP.ToString(), [CommonIEC61107.ETX]);
-        ThrowIfErrorResponse(responceStr, CE208Function.POWEP.ToString());
         var values = ParseDoubleValues(responceStr);
         return (values[0], 0, 0, values[0]); // bir fazali
     }
@@ -94,7 +89,6 @@ public class ReaderCE208(IStream stream,
     {
         logger?.LogDebug("Getting power kVA");
         var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.POWES.ToString(), [CommonIEC61107.ETX]);
-        ThrowIfErrorResponse(responceStr, "To'liq quvvat (POWES)");
         var values = ParseDoubleValues(responceStr);
         return (values[0], 0, 0, values[0]); // bir fazali
     }
@@ -103,27 +97,40 @@ public class ReaderCE208(IStream stream,
     {
         logger?.LogDebug("Getting reactive power kVar");
         var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.POWEQ.ToString(), [CommonIEC61107.ETX]);
-        ThrowIfErrorResponse(responceStr, "Reaktiv quvvat (POWEQ)");
         var values = ParseDoubleValues(responceStr);
         return (values[0], 0, 0, values[0]); // bir fazali
     }
 
     /// <summary>
     /// Real qurilmada ko'plab so'rovlar (masalan POWES/POWEQ/ET0QI) ERRxx (masalan
-    /// ERR12 - qabul qilinmaydigan so'rov) qaytarishi kuzatildi. Bu holatda javob
-    /// func nomini o'z ichiga olgani uchun SendAndGet exception tashlamaydi va ERRxx
-    /// qiymatni double/hex sifatida parse qilishga urinish tushunarsiz
-    /// FormatException bilan tugaydi - shuning uchun bu yerda oldindan tekshiramiz.
+    /// ERR12 - qabul qilinmaydigan so'rov) qaytarishi kuzatildi.
+    /// CommonIEC61107.SendAndGet ularni IecQueryException sifatida tashlaydi, lekin
+    /// chaqiruvchi uchun bu "bu CE208 nusxasi bu ko'rsatkichni qo'llamaydi" degani -
+    /// shuning uchun NotSupportedException'ga o'giriladi.
+    ///
+    /// ERR18 istisno: u "so'ralgan sanada ma'lumot yo'q" degani va arxiv o'qish
+    /// mantig'i (GetEndOfPeriod) uni IecQueryException sifatida ushlab bo'sh natija
+    /// qaytaradi, shuning uchun o'z holicha qoldiriladi.
     /// </summary>
-    private static void ThrowIfErrorResponse(string responceStr, string context)
+    protected override async Task<string> SendAndGet(CE30XCommand cmd, string func,
+                                                     byte[] waitingLastBytes, params string[] paramArg)
     {
-        var errMatch = Regex.Match(responceStr, @"ERR\d+");
-        if (errMatch.Success)
+        try
+        {
+            return await base.SendAndGet(cmd, func, waitingLastBytes, paramArg);
+        }
+        catch (IecQueryException ex) when (ErrCode(ex) is { } err && err != "ERR18")
         {
             throw new NotSupportedException(
-                $"{context} so'rovi rad etildi ({errMatch.Value}). Bu CE208 nusxasi " +
-                "bu ko'rsatkichni qo'llab-quvvatlamasligi mumkin.");
+                $"{func} so'rovi rad etildi ({err}). Bu CE208 nusxasi " +
+                "bu ko'rsatkichni qo'llab-quvvatlamasligi mumkin.", ex);
         }
+    }
+
+    private static string? ErrCode(Exception ex)
+    {
+        var match = Regex.Match(ex.Message, @"ERR\d+");
+        return match.Success ? match.Value : null;
     }
 
     // === Energiya metodlari (Task 5 + Task 8) ===
@@ -181,7 +188,6 @@ public class ReaderCE208(IStream stream,
     private async Task<(double sum, double t1, double t2, double t3, double t4)> GetEnergyValuesCE208(string func)
     {
         var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX]);
-        ThrowIfErrorResponse(responceStr, func);
         var values = ParseDoubleValues(responceStr);
         return (values[0], values[1], values[2], values[3], values[4]);
     }
@@ -248,7 +254,7 @@ public class ReaderCE208(IStream stream,
             throw;
         }
 
-        if (values.Length == 0 || values[0].StartsWith("ERR"))
+        if (values.Length == 0)
         {
             return ("", 0, 0, 0, 0, 0);
         }
@@ -313,7 +319,7 @@ public class ReaderCE208(IStream stream,
                 .Where(v => !string.IsNullOrWhiteSpace(v))
                 .ToArray();
 
-            if (values.Length == 0 || values[0].StartsWith("ERR")) break;
+            if (values.Length == 0) break;
 
             // Qurilma to'ldirilmagan arxiv joylarini "00.00.00" bilan belgilaydi -
             // bular haqiqiy yozuv emas, shuning uchun ro'yxatga qo'shilmaydi va
@@ -356,7 +362,6 @@ public class ReaderCE208(IStream stream,
         if (_recordsPerDay is int cached) return cached;
 
         var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.TAVER.ToString(), [CommonIEC61107.ETX]);
-        ThrowIfErrorResponse(responceStr, CE208Function.TAVER.ToString());
         var taver = int.Parse(CommonIEC61107.ParseResponseValues(responceStr).First(), CultureInfo.InvariantCulture);
         _recordsPerDay = 1440 / taver;
         logger?.LogDebug("TAVER = {taver} min, records per day = {records}", taver, _recordsPerDay);
@@ -423,7 +428,7 @@ public class ReaderCE208(IStream stream,
             date.ToString("dd.MM.yy"), fromRecord.ToString(), recCount.ToString());
 
         var values = CommonIEC61107.ParseResponseValues(responceStr)
-            .Where(v => !string.IsNullOrWhiteSpace(v) && !v.StartsWith("ERR"))
+            .Where(v => !string.IsNullOrWhiteSpace(v))
             .ToArray();
         
         var readDate = new DateTimeOffset(date.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(5));
@@ -482,7 +487,7 @@ public class ReaderCE208(IStream stream,
         var result = new List<(ushort recNo, DateTimeOffset dateTime, byte status)>();
         for (int i = 0; i < values.Length; i++)
         {
-            if (string.IsNullOrWhiteSpace(values[i]) || values[i].StartsWith("ERR")) continue;
+            if (string.IsNullOrWhiteSpace(values[i])) continue;
             try
             {
                 var (dateTime, status) = ParseLogRecord(values[i]);
@@ -536,7 +541,6 @@ public class ReaderCE208(IStream stream,
     {
         logger?.LogDebug("Getting relay state");
         var responceStr = await SendAndGet(CE30XCommand.R1, CE208Function.STAT_.ToString(), [CommonIEC61107.ETX]);
-        ThrowIfErrorResponse(responceStr, CE208Function.STAT_.ToString());
         var value = CommonIEC61107.ParseResponseValues(responceStr).First();
         return ParseRelayState(value);
     }

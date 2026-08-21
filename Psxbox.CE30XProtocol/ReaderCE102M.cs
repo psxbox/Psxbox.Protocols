@@ -82,10 +82,20 @@ public class ReaderCE102M(IStream stream,
             _ => throw new Exception($"Unknown function: {func}"),
         };
 
-        string responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], $"{agoStr}");
-        string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
+        string[] values;
 
-        if (values.Length == 0 || values[0] == "ERR18")
+        try
+        {
+            string responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], $"{agoStr}");
+            values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
+        }
+        catch (IecQueryException ex) when (ex.Message.Contains("ERR18"))
+        {
+            logger?.LogWarning("Received ERR18 for {func} with agoStr {agoStr}. Returning empty result.", func, agoStr);
+            return ("", 0, 0, 0, 0, 0);
+        }
+
+        if (values.Length == 0)
         {
             return ("", 0, 0, 0, 0, 0);
         }

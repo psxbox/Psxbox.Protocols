@@ -36,7 +36,7 @@ public abstract class BaseReader(IStream stream, string id, string password = "7
         await CommonIEC61107.Disconnect(stream);
     }
 
-    protected async Task<string> SendAndGet(CE30XCommand cmd, string func, byte[] waitingLastBytes, params string[] paramArg)
+    protected virtual async Task<string> SendAndGet(CE30XCommand cmd, string func, byte[] waitingLastBytes, params string[] paramArg)
     {
         string resultStr = string.Empty;
         var maxRetries = 2;
@@ -47,6 +47,12 @@ public abstract class BaseReader(IStream stream, string id, string password = "7
             {
                 resultStr = await CommonIEC61107.SendAndGet(stream, cmd, func, waitingLastBytes, paramArg);
                 break;
+            }
+            catch (IecQueryException)
+            {
+                // ERRxx - hisoblagichning ataylab rad javobi, qayta urinish foydasiz.
+                // Pastdagi SendWrite(func, paramArg) da xuddi shu mantiq bor edi.
+                throw;
             }
             catch (Exception)
             {
