@@ -191,10 +191,12 @@ public class ReaderCE303(IStream stream,
         throw new NotImplementedException("This function is not implemented in CE303 reader. Please refer to the manual for more details");
     }
 
-    public Task<IEnumerable<(ushort recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
+    public Task<IEnumerable<(long recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
     {
         throw new NotImplementedException("This function is not implemented in CE303 reader. Please refer to the manual for more details");
     }
+
+    public string[] GetPowerStatusFunctions() => [];
 
     public async Task<(double a, double b, double c)> GetVoltage()
     {

@@ -252,10 +252,12 @@ public class ReaderCE6850M(IStream stream,
         return (a, b, c, sum);
     }
 
-    public Task<IEnumerable<(ushort recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
+    public Task<IEnumerable<(long recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
     {
         throw new NotImplementedException("This function is not implemented in CE6850M reader. Please refer to the manual for more details");
     }
+
+    public string[] GetPowerStatusFunctions() => [];
 
     public async Task<(double a, double b, double c)> GetVoltage()
     {

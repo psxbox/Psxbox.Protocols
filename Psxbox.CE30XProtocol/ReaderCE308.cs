@@ -311,20 +311,20 @@ public class ReaderCE308(IStream stream,
         return data;
     }
 
-    public async Task<IEnumerable<(ushort recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
+    public async Task<IEnumerable<(long recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
     {
         logger?.LogDebug("Getting {func} times.", func);
         var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], "0");
         string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
 
-        var result = new List<(ushort recNo, DateTimeOffset dateTime, byte status)>();
+        var result = new List<(long recNo, DateTimeOffset dateTime, byte status)>();
 
         foreach (var item in values)
         {
             try
             {
                 string[] splitted = item.Split(',');
-                ushort recNo = ushort.Parse(splitted[0]);
+                long recNo = long.Parse(splitted[0]);
                 DateOnly date = DateOnly.ParseExact(splitted[1], "dd.MM.yy");
                 TimeOnly time = TimeOnly.Parse(splitted[2]);
                 DateTimeOffset dateTime = new(date.ToDateTime(time), TimeSpan.FromHours(5));
@@ -338,6 +338,12 @@ public class ReaderCE308(IStream stream,
         }
         return result;
     }
+
+    public string[] GetPowerStatusFunctions() => [
+        CE308Function.LNE04.ToString(),
+        CE308Function.LNE05.ToString(),
+        CE308Function.LNE22.ToString(),
+    ];
 
     public async Task<(double sum, double t1, double t2, double t3, double t4)> GetActiveEnergyIn(
         bool forCurrentPeriod = false, string period = "day")

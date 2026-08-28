@@ -117,10 +117,17 @@ public interface IReader : IDisposable
     /// LNE04 - Poyavleniye i propadaniye silovogo pitaniya schetchika, 
     /// LNE05 - Polnoe propadaniya pitaniya,
     /// LNE22 - Sostoyaniye litevogo elementa pitaniya
+    /// CE208 uchun LOG03 (epochSeconds recNo)
     /// </summary>
-    /// <param name="func">Funksiya. LNE04, LNE05, LNE22 funksiyalarni ishlatish kerak.</param>
-    /// <returns></returns>
-    Task<IEnumerable<(ushort recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func);
+    /// <param name="func">Funksiya. LNE04, LNE05, LNE22 yoki LOG03</param>
+    /// <returns>recNo: CE308 da qurilma recNo, CE208 da epochSeconds</returns>
+    Task<IEnumerable<(long recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func);
+
+    /// <summary>
+    /// Quvvat holati jurnallari funksiyalari ro'yxati.
+    /// CE308: LNE04/LNE05/LNE22, CE208: LOG03, boshqalar: bo'sh
+    /// </summary>
+    string[] GetPowerStatusFunctions();
 
     /// <summary>
     /// Yig'ilgan aktiv energiya +

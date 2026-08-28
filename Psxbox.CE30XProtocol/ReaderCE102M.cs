@@ -149,10 +149,12 @@ public class ReaderCE102M(IStream stream,
         throw new NotImplementedException();
     }
 
-    public Task<IEnumerable<(ushort recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
+    public Task<IEnumerable<(long recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
     {
         throw new NotImplementedException();
     }
+
+    public string[] GetPowerStatusFunctions() => [];
 
     public async Task<(double a, double b, double c)> GetVoltage()
     {

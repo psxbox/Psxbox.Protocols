@@ -465,7 +465,7 @@ public class ReaderCE208(IStream stream,
         return (new DateTimeOffset(date.ToDateTime(time), TimeSpan.FromHours(5)), status);
     }
 
-    public async Task<IEnumerable<(ushort recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
+    public async Task<IEnumerable<(long recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
     {
         logger?.LogDebug("Getting {func} journal", func);
 
@@ -484,14 +484,15 @@ public class ReaderCE208(IStream stream,
             "1", PowerStatusReadCount.ToString());
         var values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
 
-        var result = new List<(ushort recNo, DateTimeOffset dateTime, byte status)>();
+        var result = new List<(long recNo, DateTimeOffset dateTime, byte status)>();
         for (int i = 0; i < values.Length; i++)
         {
             if (string.IsNullOrWhiteSpace(values[i])) continue;
             try
             {
                 var (dateTime, status) = ParseLogRecord(values[i]);
-                result.Add(((ushort)(i + 1), dateTime, status));
+                // CE208 da recNo yo'q — epochSeconds ishlatiladi
+                result.Add((dateTime.ToUnixTimeSeconds(), dateTime, status));
             }
             catch (Exception ex)
             {
@@ -500,6 +501,8 @@ public class ReaderCE208(IStream stream,
         }
         return result;
     }
+
+    public string[] GetPowerStatusFunctions() => [CE208Function.LOG03.ToString()];
 
     // === CE208 protokolida mavjud emas ===
 
