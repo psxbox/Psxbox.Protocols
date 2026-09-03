@@ -25,7 +25,7 @@ public class ReaderCE308CAS(IStream stream,
         var dateAndSum = values[0].Split(',');
         string date = ParseArchiveTime(values[0], archiveType).ToString("dd.MM.yy", CultureInfo.InvariantCulture);  //dateAndSum[0];
         // Sum qiymati "0x0->1.05276" ko'rinishida bo'lishi mumkin, shuni ajratib olish kerak
-        string sumStr = dateAndSum.Length > 3 && dateAndSum[3].Contains("->")
+        string sumStr = dateAndSum.Length > 3 && dateAndSum[3].Contains("->", StringComparison.Ordinal)
             ? dateAndSum[3].Split("->")[1]
             : dateAndSum[1];
         double tSum = double.Parse(sumStr, CultureInfo.InvariantCulture);

@@ -147,7 +147,7 @@ public class ReaderCE308(IStream stream,
                         $"{archiveIndex}.{accPeriod}", "F");
             values = CommonIEC61107.ParseResponseValues(responseStr).ToArray();
         }
-        catch (IecQueryException ex) when (ex.Message.Contains("ERR18"))
+        catch (IecQueryException ex) when (ex.Message.Contains("ERR18", StringComparison.Ordinal))
         {
             logger?.LogWarning("Received ERR18 for {func} with archiveIndex {archiveIndex} and accPeriod {accPeriod}. Returning empty result.", func, archiveIndex, accPeriod);
             return (string.Empty, default, default, default, default, default);

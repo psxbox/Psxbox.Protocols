@@ -63,7 +63,7 @@ public class ReaderCE303(IStream stream,
             var responseStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], $"{agoStr}");
             values = CommonIEC61107.ParseResponseValues(responseStr).ToArray();
         }
-        catch (IecQueryException ex) when (ex.Message.Contains("ERR18"))
+        catch (IecQueryException ex) when (ex.Message.Contains("ERR18", StringComparison.Ordinal))
         {
             logger?.LogWarning("Received ERR18 for {func} with agoStr {agoStr}. Returning empty result.", func, agoStr);
             return (string.Empty, default, default, default, default, default);

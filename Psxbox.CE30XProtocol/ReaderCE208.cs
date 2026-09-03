@@ -244,7 +244,7 @@ public class ReaderCE208(IStream stream,
     
             values = CommonIEC61107.ParseResponseValues(responseStr).ToArray();
         }
-        catch (IecQueryException ex) when (ex.Message.Contains("ERR18"))
+        catch (IecQueryException ex) when (ex.Message.Contains("ERR18", StringComparison.Ordinal))
         {
             logger?.LogWarning("Received ERR18 for {func} with requested date {requested}. Returning empty result.", func, requested);
             return ("", 0, 0, 0, 0, 0);
@@ -532,7 +532,7 @@ public class ReaderCE208(IStream stream,
         {
             await SendWrite(CE208Function.RCTL1.ToString(), on ? "1" : "0");
         }
-        catch (Exception ex) when (ex.Message.Contains("ERR18"))
+        catch (Exception ex) when (ex.Message.Contains("ERR18", StringComparison.Ordinal))
         {
             throw new Exception(
                 "Rele komandasi rad etildi (ERR18). REL_1 konfiguratsiyasida " +

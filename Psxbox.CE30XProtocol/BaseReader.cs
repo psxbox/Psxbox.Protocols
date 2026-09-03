@@ -125,7 +125,7 @@ public abstract class BaseReader(IStream stream, string id, string password = "7
             catch (Exception ex)
             {
                 // ERRxx - hisoblagichning ataylab rad javobi, qayta urinish foydasiz
-                if (ex.Message.Contains("ERR") || attempt == maxRetries - 1)
+                if (ex.Message.Contains("ERR", StringComparison.Ordinal) || attempt == maxRetries - 1)
                 {
                     throw;
                 }

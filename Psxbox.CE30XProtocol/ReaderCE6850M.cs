@@ -124,7 +124,7 @@ public class ReaderCE6850M(IStream stream,
             throw new ArgumentException("Unknown function", nameof(func));
         }
 
-        bool daily = func.StartsWith("ED");
+        bool daily = func.StartsWith("ED", StringComparison.Ordinal);
         bool isDatesReaded = daily ? _dayArchiveDates.Count > 0 : _monthArchiveDates.Count > 0;
 
         if (!isDatesReaded)
@@ -145,7 +145,7 @@ public class ReaderCE6850M(IStream stream,
             var responseStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], $"{index + 1}");
             values = CommonIEC61107.ParseResponseValues(responseStr).ToArray();
         }
-        catch (IecQueryException ex) when (ex.Message.Contains("ERR18"))
+        catch (IecQueryException ex) when (ex.Message.Contains("ERR18", StringComparison.Ordinal))
         {
             logger?.LogWarning("Received ERR18 for {func} with index {index}. Returning empty result.", func, index + 1);
             return ("", 0, 0, 0, 0, 0);

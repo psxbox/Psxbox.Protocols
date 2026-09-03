@@ -116,7 +116,7 @@ namespace Psxbox.CE30XProtocol
             _ = await stream.ReadAsync(); // read last checksum byte
             var responceStr = Encoding.ASCII.GetString(responce);
 
-            if (!responceStr.Contains($"{(char)SOH}P0{(char)STX}"))
+            if (!responceStr.Contains($"{(char)SOH}P0{(char)STX}", StringComparison.Ordinal))
                 throw new($"Kelgan javob noto'g'ri: {responceStr}");
 
             if (string.IsNullOrEmpty(password)) return true;
@@ -179,7 +179,7 @@ namespace Psxbox.CE30XProtocol
                 throw new IecQueryException($"So'rov: {Encoding.ASCII.GetString(sendData)}, Xato: {errMatch.Value}");
             }
 
-            if (!resultStr.Contains(func))
+            if (!resultStr.Contains(func, StringComparison.Ordinal))
                 throw new Exception($"So'rov: {Encoding.ASCII.GetString(sendData)}, Kelgan javob noto'gri: {resultStr}");
 
             return resultStr;
