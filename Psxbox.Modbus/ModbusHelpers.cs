@@ -36,6 +36,7 @@ public static class ModbusHelpers
                 string errMsg = ParseErrorCode(errCode);
 
                 msg += $" - {errMsg}";
+                throw new ModbusException(requestFunc, errCode, msg);
             }
 
             throw new Exception(msg);
