@@ -25,5 +25,7 @@
         POWEQ, // Reactive power in/out, kVar
         COS_f, // Power factor: sum, A, B, C
         TAN_f, // Tangent phi: sum, A, B, C
+        PPHAS, // Faza holati jurnali: kumulyativ recNo ni qaytaradi, PPHAS(N)
+        PHASE, // Faza holati jurnali yozuvlari, PHASE(from.count)
     }
 }

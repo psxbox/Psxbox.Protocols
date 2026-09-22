@@ -191,12 +191,135 @@ public class ReaderCE303(IStream stream,
         throw new NotImplementedException("This function is not implemented in CE303 reader. Please refer to the manual for more details");
     }
 
-    public Task<IEnumerable<(long recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
+    /// <summary>
+    /// CE303 PHASE jurnali sig'imi — rasmiy RE ИНЕС.411152.081 bo'yicha
+    /// "Журнал состояния фаз (50 записей)". AdminTools yozuvi (v8/v10) ham tasdiqlaydi.
+    /// </summary>
+    public const int DefaultPowerStatusCapacity = 50;
+
+    /// <summary>
+    /// Joriy reader uchun PHASE jurnali sig'imi. Sig'im model/firmware versiyasiga
+    /// bog'liq bo'lishi mumkin (masalan ba'zi CE301 RE larida 200 yozuv) — shuning uchun
+    /// meroschi sinflar uni override qilishi mumkin.
+    /// </summary>
+    protected virtual int PowerStatusCapacity => DefaultPowerStatusCapacity;
+
+    /// <summary>
+    /// Bitta PHASE so'rovda olinadigan yozuvlar soni (AdminTools namunasi: 10).
+    /// </summary>
+    private const int PowerStatusPageSize = 10;
+
+    /// <summary>
+    /// CE303 faza holati jurnalini (PHASE) o'qiydi.
+    ///
+    /// AdminTools yozuvidan qayta terilgan almashuv:
+    ///   1) PPHAS() - PPHAS(N)  — kumulyativ recNo (eng yangi yozuvning tartib raqami);
+    ///   2) PHASE(from.count) - STX PHASE(dd-MM-yy-HH-mm-SS)...ETX — sahifalar.
+    ///
+    /// Jurnal ayrlanma (sig'im PowerStatusCapacity), xom recNo monoton emas
+    /// (50 - 1 sakraydi), shuning uchun xizmatdagi Readed{func} dedup filtri
+    /// (last > recNo) uchun kumulyativ recNo sintezlanadi: u vaqt bo'yicha
+    /// qat'iy o'sadi.
+    /// </summary>
+    public virtual async Task<IEnumerable<(long recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
     {
-        throw new NotImplementedException("This function is not implemented in CE303 reader. Please refer to the manual for more details");
+        logger?.LogDebug("Getting {func} journal", func);
+
+        if (func != CE303Function.PHASE.ToString())
+        {
+            throw new ArgumentException($"Unknown function: {func}", nameof(func));
+        }
+
+        // 1) Kumulyativ recNo ni olish: PPHAS() -> PPHAS(N)
+        var initStr = await SendAndGet(CE30XCommand.R1, CE303Function.PPHAS.ToString(),
+            [CommonIEC61107.ETX]);
+        var initValues = CommonIEC61107.ParseResponseValues(initStr).ToArray();
+        if (initValues.Length == 0 || !long.TryParse(initValues[0], out var cum) || cum <= 0)
+        {
+            // Bo'sh jurnal yoki noto'g'ri javob — xavfsiz ravishda bo'sh natija
+            logger?.LogWarning("PPHAS noto'g'ri javob: {resp}", initStr);
+            return [];
+        }
+
+        var total = (int)Math.Min(cum, PowerStatusCapacity);
+        var result = new List<(long recNo, DateTimeOffset dateTime, byte status)>(total);
+
+        long cumPos = cum;   // joriy sahifaning eng yangi yozuvi (kumulyativ recNo)
+        int remaining = total;
+
+        while (remaining > 0)
+        {
+            // Ayrlanma chegarada so'rov bo'laklanishi shart (AdminTools ham
+            // chegarada 10 ta o'rniga kamroq yozuv so'raydi):
+            // take = min(sahifa, qolgan, hiRecNo) — from hech qachon 1 dan past tushmaydi.
+            var hiRecNo = (int)(cumPos % PowerStatusCapacity) + 1;
+            var take = Math.Min(PowerStatusPageSize, Math.Min(remaining, hiRecNo));
+            var loRecNo = hiRecNo - take + 1;
+            var firstCum = cumPos - take + 1;
+
+            var respStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX],
+                $"{loRecNo}.{take}");
+            var values = CommonIEC61107.ParseResponseValues(respStr).ToArray();
+
+            if (values.Length == 0)
+            {
+                logger?.LogWarning("PHASE({from}.{count}) bo'sh javob, o'qish to'xtatildi",
+                    loRecNo, take);
+                break;
+            }
+            if (values.Length != take)
+            {
+                logger?.LogWarning("PHASE({from}.{count}): kutilgan {expected} yozuv o'rniga {actual} keldi",
+                    loRecNo, take, take, values.Length);
+            }
+
+            var count = Math.Min(values.Length, take);
+            for (int i = 0; i < count; i++)
+            {
+                if (string.IsNullOrWhiteSpace(values[i])) continue;
+                try
+                {
+                    var (dateTime, status) = ParsePhaseRecord(values[i]);
+                    // Kumulyativ recNo: sahifa ichida eski->yangi, vaqtga qarab monoton
+                    result.Add((firstCum + i, dateTime, status));
+                }
+                catch (Exception ex)
+                {
+                    logger?.LogError(ex, "Error parsing: {item}", values[i]);
+                }
+            }
+
+            cumPos = firstCum - 1;
+            remaining -= take;
+        }
+
+        return result;
     }
 
-    public string[] GetPowerStatusFunctions() => [];
+    /// <summary>
+    /// PHASE jurnal yozuvini parse qiladi. Format: "dd-MM-yy-HH-mm-SS" —
+    /// 6 maydon, soniya yo'q, oxirgisi status bayti (masalan "16-9-26-19-7-80"
+    /// -> 16.09.2026 19:07, status 80).
+    /// </summary>
+    public static (DateTimeOffset dateTime, byte status) ParsePhaseRecord(string record)
+    {
+        var parts = record.Split('-');
+        if (parts.Length != 6)
+        {
+            throw new FormatException($"Noto'g'ri PHASE yozuvi: {record}");
+        }
+
+        var paddedDate = string.Join('-', parts[0].PadLeft(2, '0'),
+            parts[1].PadLeft(2, '0'), parts[2].PadLeft(2, '0'));
+        var date = DateOnly.ParseExact(paddedDate, "dd-MM-yy", CultureInfo.InvariantCulture);
+        var time = new TimeOnly(
+            int.Parse(parts[3], CultureInfo.InvariantCulture),
+            int.Parse(parts[4], CultureInfo.InvariantCulture));
+        var status = byte.Parse(parts[5], CultureInfo.InvariantCulture);
+        return (new DateTimeOffset(date.ToDateTime(time), TimeSpan.FromHours(5)), status);
+    }
+
+    public virtual string[] GetPowerStatusFunctions() => [CE303Function.PHASE.ToString()];
 
     public async Task<(double a, double b, double c)> GetVoltage()
     {
