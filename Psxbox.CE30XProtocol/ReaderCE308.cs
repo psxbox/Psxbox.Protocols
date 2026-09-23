@@ -319,6 +319,13 @@ public class ReaderCE308(IStream stream,
         return (date, data);
     }
 
+    /// <summary>
+    /// Yuklama profilini o'qiydi. Standart usul — <b>VPIzz(dd.mm.yy,k,n)</b>
+    /// (sana identifikatori bo'yicha, hujjat "4б" bo'limi): fiksatsiya indeksi
+    /// talab qilinmaydi, kun to'g'ridan-to'g'ri sanasi bilan so'raladi.
+    /// Eski firmware VPI ni qo'llab-quvvatlamasa (ERR12) —
+    /// <see cref="GetLoadProfilesByFixationIndexAsync"/> (VPRzz(i,k,n)) ga o'tadi.
+    /// </summary>
     public virtual async Task<IEnumerable<(DateTimeOffset dateTime, double value, short status)>> GetLoadProfiles(DateTimeOffset lastReadedDate,
         DateTimeOffset deviceDateTime, string func)
     {
@@ -333,10 +340,67 @@ public class ReaderCE308(IStream stream,
             throw new Exception("Oxirgi o'qilgan vaqt qurilma vaqtidan katta");
         }
 
-        // VPR i — fiksatsiya indeksi (0 = joriy sutka). Kunlik fiksatsiyalar
-        // tushib qolganda (hisoblagich o'chiq) indeks siljiydi — LST04 orqali
-        // aniqlanadi. Joriy sutka doimo 0; o'tgan kun topilmasa ERR18 uzatiladi
-        // (worker shu bo'yicha kunni o'tkazib yuboradi).
+        try
+        {
+            return await GetLoadProfilesByDateAsync(lastReadedDate, deviceDateTime, func);
+        }
+        catch (IecQueryException ex) when (ex.Message.Contains("ERR12", StringComparison.Ordinal))
+        {
+            // Eski firmware VPI so'rovini bilmaydi — VPR (fiksatsiya indeksi) usuli
+            logger?.LogWarning(ex, "VPI qo'llab-quvvatlanmaydi ({func}), VPR usuliga o'tiladi", func);
+            return await GetLoadProfilesByFixationIndexAsync(lastReadedDate, deviceDateTime, func);
+        }
+    }
+
+    /// <summary>
+    /// VPIzz(dd.mm.yy,k,n) — sana identifikatori bo'yicha profil o'qish (hujjat:
+    /// "4б. Запросы данных профиля по идентификатору фиксации суток в архиве").
+    /// Javob identifikatori so'ralgan kunga teng bo'lmasa (qurilma yaqin orqadagi
+    /// kunni qaytaradi) — ERR18 uzatiladi, worker shu bo'yicha kunni o'tkazadi.
+    /// </summary>
+    protected virtual async Task<IEnumerable<(DateTimeOffset dateTime, double value, short status)>> GetLoadProfilesByDateAsync(
+        DateTimeOffset lastReadedDate, DateTimeOffset deviceDateTime, string func)
+    {
+        var queryFunc = ToDateQueryFunction(func);
+        var profileDate = DateOnly.FromDateTime(lastReadedDate.Date);
+
+        var interval = await GetProfileIntervalAsync();
+        var recordsPerDay = 1440 / interval;
+        var (fromRecord, recCount) = ComputeProfileWindow(lastReadedDate, deviceDateTime, interval, recordsPerDay);
+
+        var responceStr = await SendAndGet(CE30XCommand.R1, queryFunc, [CommonIEC61107.ETX],
+            profileDate.ToString("dd.MM.yy", CultureInfo.InvariantCulture),
+            fromRecord.ToString(), recCount.ToString());
+        string[] values = [.. CommonIEC61107.ParseResponseValues(responceStr)];
+
+        if (values.Length == 0) return [];
+
+        // Birinchi qatorda qaytarilgan sana identifikatori bor (hujjat: javob
+        // to'liq mos yoki yaqin orqadagi identifikator bo'yicha keladi)
+        var first = values[0].Split(',');
+        if (first.Length < 3
+            || !DateOnly.TryParseExact(first[0], "dd.MM.yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var returnedDate)
+            || returnedDate != profileDate)
+        {
+            throw new IecQueryException(
+                $"ERR18: {profileDate:dd.MM.yy} kuni uchun profil topilmadi (qaytarilgan identifikator: {first[0]})");
+        }
+
+        var dayStart = new DateTimeOffset(profileDate.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(5));
+        return ParseProfileRecords(values, dayStart, fromRecord);
+    }
+
+    /// <summary>
+    /// VPRzz(i,k,n) — fiksatsiya indeksi bo'yicha profil o'qish (eski usul).
+    /// VPI so'rovini bilmaydigan eski firmware uchun saqlab qolingan
+    /// (<see cref="GetLoadProfiles"/> ERR12 da shu yerga o'tadi).
+    /// VPR i — fiksatsiya indeksi (0 = joriy sutka); fiksatsiyalar tushib qolganda
+    /// indeks siljiydi — LST04 orqali aniqlanadi. Joriy sutka doimo 0; o'tgan kun
+    /// topilmasa ERR18 uzatiladi (worker kunni o'tkazib yuboradi).
+    /// </summary>
+    protected virtual async Task<IEnumerable<(DateTimeOffset dateTime, double value, short status)>> GetLoadProfilesByFixationIndexAsync(
+        DateTimeOffset lastReadedDate, DateTimeOffset deviceDateTime, string func)
+    {
         var profileDate = DateOnly.FromDateTime(lastReadedDate.Date);
         var isCurrentDay = profileDate == DateOnly.FromDateTime(deviceDateTime.Date);
         var profileIndex = isCurrentDay
@@ -345,24 +409,13 @@ public class ReaderCE308(IStream stream,
 
         var interval = await GetProfileIntervalAsync();
         var recordsPerDay = 1440 / interval;
-
-        var fromRecord = (short)((lastReadedDate.Hour * 60 + lastReadedDate.Minute) / interval + 1);
-        int recCount = recordsPerDay - (fromRecord - 1);
-        var daysAgo = (int)(deviceDateTime.StartOfDay() - lastReadedDate.StartOfDay()).TotalDays;
-
-        if (daysAgo == 0)
-        {
-            TimeSpan timeSpan = deviceDateTime - lastReadedDate;
-            recCount = (int)timeSpan.TotalMinutes / interval;
-        }
-        if (recCount > recordsPerDay) recCount = recordsPerDay;
+        var (fromRecord, recCount) = ComputeProfileWindow(lastReadedDate, deviceDateTime, interval, recordsPerDay);
 
         var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], profileIndex.ToString(),
             fromRecord.ToString(), recCount.ToString());
         string[] values = [.. CommonIEC61107.ParseResponseValues(responceStr)];
 
-        List<(DateTimeOffset dateTime, double value, short status)> data = [];
-        if (values.Length == 0) return data;
+        if (values.Length == 0) return [];
 
         // Birinchi qator "dd.mm.yy,X.X,hex" (sana identifikatori bilan),
         // qolganlari "X.X,hex". Oxirgi ikki maydon doim qiymat va status.
@@ -373,6 +426,47 @@ public class ReaderCE308(IStream stream,
         {
             dayStart = new DateTimeOffset(dateFromDevice.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(5));
         }
+
+        return ParseProfileRecords(values, dayStart, fromRecord);
+    }
+
+    /// <summary>
+    /// VPR nomini sana bo'yicha so'rov nomiga (VPI) o'tkazadi ("VPR01" -> "VPI01").
+    /// Telemetriya kalitlari VPR nomi bilan qolishi uchun GetLoadProfileFunctions()
+    /// o'zgartirilmagan — faqat simdagi so'rov nomi almashadi.
+    /// </summary>
+    protected static string ToDateQueryFunction(string func) =>
+        func.StartsWith("VPR", StringComparison.Ordinal) ? "VPI" + func[3..] : func;
+
+    /// <summary>
+    /// So'ralgan kun oralig'i: fromRecord (1 dan, interval bo'yicha) va
+    /// qolgan intervalar soni (joriy sutkada — oxirigacha).
+    /// </summary>
+    private (short fromRecord, int recCount) ComputeProfileWindow(
+        DateTimeOffset lastReadedDate, DateTimeOffset deviceDateTime, int interval, int recordsPerDay)
+    {
+        var fromRecord = (short)((lastReadedDate.Hour * 60 + lastReadedDate.Minute) / interval + 1);
+        int recCount = recordsPerDay - (fromRecord - 1);
+        var daysAgo = (int)(deviceDateTime.StartOfDay() - lastReadedDate.StartOfDay()).TotalDays;
+
+        if (daysAgo == 0)
+        {
+            TimeSpan timeSpan = deviceDateTime - lastReadedDate;
+            recCount = (int)timeSpan.TotalMinutes / interval;
+        }
+        if (recCount > recordsPerDay) recCount = recordsPerDay;
+        return (fromRecord, recCount);
+    }
+
+    /// <summary>
+    /// Profil yozuvlarini parse qiladi: birinchi qator "dd.mm.yy,X.X,hex",
+    /// qolganlari "X.X,hex" (status — uStatRec_TypeDef, HEX). Buzilgan yozuv
+    /// o'tkazib yuboriladi.
+    /// </summary>
+    private List<(DateTimeOffset dateTime, double value, short status)> ParseProfileRecords(
+        string[] values, DateTimeOffset dayStart, short fromRecord)
+    {
+        List<(DateTimeOffset dateTime, double value, short status)> data = new(values.Length);
 
         for (int i = 0; i < values.Length; i++)
         {
@@ -387,7 +481,6 @@ public class ReaderCE308(IStream stream,
             }
             catch (Exception ex)
             {
-                // Bitta buzilgan yozuv butun o'qishni yiqmasligi kerak
                 logger?.LogError(ex, "Error parsing load profile record: {item}", values[i]);
             }
         }

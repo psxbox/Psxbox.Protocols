@@ -27,10 +27,14 @@
         POWEQ, // KVar
         CORIU, // I va U orasidagi burchak
         CORUU, // 2 faza orasidagi burchak
-        VPR01, // 1 profil nagruzka
+        VPR01, // 1 profil nagruzka (indeks/fiksatsiya bo'yicha)
         VPR02, // 2 profil nagruzka
         VPR03, // 3 profil nagruzka
         VPR04, // 4 profil nagruzka
+        VPI01, // 1 profil nagruzka (sana identifikatori bo'yicha)
+        VPI02, // 2 profil nagruzka
+        VPI03, // 3 profil nagruzka
+        VPI04, // 4 profil nagruzka
         LNE04, // LOG_PowerSupply — Silovoe pitanie: 0=vkl / 1=vykl
         LNE05, // LOG_FaultSupply — Polnoe propadanie pitaniya
         LNE22, // LOG_StatBattery — Sostoyaniye litevogo elementa: 0=OK, 1=plohoe, 2=otsutstvuyet
