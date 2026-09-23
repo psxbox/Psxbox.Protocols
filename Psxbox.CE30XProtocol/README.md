@@ -217,6 +217,15 @@ public interface IReader : IDisposable
     Task<(double a, double b, double c, double sum)> GetPowerQ();
     Task<(double a, double b, double c, double avg)> GetPowerFactor();
     Task<(double t1, double t2, double t3, double t4, double total)> GetEnergyAP();
+
+    // GetEndOfPeriod sanasini davr oxiri vaqtiga o'tkazish (format har modelda farq qiladi,
+    // BaseReader.ParseArchiveTimestamp da umumiy parse, kerak bo'lsa override qilinadi)
+    DateTimeOffset ParseArchiveTimestamp(string date, ArchiveType archiveType);
+
+    // Yuklama profili (yarim soatlik) o'lchamlari
+    int LoadProfilePeriodInMinutes { get; }
+    int LoadProfileCountPerRequest { get; }
+
     // ...
 }
 ```

@@ -17,6 +17,46 @@ public abstract class BaseReader(IStream stream, string id, string password = "7
     abstract public int LoadProfilePeriodInMinutes { get; }
     abstract public int LoadProfileCountPerRequest { get; }
 
+    /// <summary>
+    /// Energomera hisoblagichlari O'zbekiston vaqt mintaqasida (UTC+5) ishlaydi.
+    /// Arxiv sanalari shu offset bilan DateTimeOffset'ga o'tkaziladi.
+    /// </summary>
+    public static readonly TimeSpan MeterTimeOffset = TimeSpan.FromHours(5);
+
+    /// <inheritdoc />
+    public virtual DateTimeOffset ParseArchiveTimestamp(string date, ArchiveType archiveType)
+    {
+        // Modellar sanani turlicha qaytaradi: kunlik "d.M.yy"/"dd.MM.yy", oylik
+        // "M.yy" (CE303/CE102M/CE208) yoki "d.M.yy" (CE308/CE6850M — ba'zan hisob-kun
+        // bilan, masalan "00.09.25"), yillik esa "b.00.yy" ko'rinishida. Shuning uchun
+        // maydonlar nuqta bilan ajratilib, arxiv turiga qarab parse qilinadi.
+        var parts = date.Split('.');
+
+        switch (archiveType)
+        {
+            case ArchiveType.Day:
+                {
+                    var dateOnly = DateOnly.ParseExact(date, "d.M.yy");
+                    return new DateTimeOffset(dateOnly.ToDateTime(new TimeOnly(23, 59, 59)), MeterTimeOffset);
+                }
+            case ArchiveType.Month:
+                {
+                    // 3 maydon (kun.oy.yil) bo'lsa kun e'tiborga olinmaydi, 2 maydon (oy.yil) to'g'ridan-to'g'ri oy
+                    var monthIndex = parts.Length == 3 ? 1 : 0;
+                    var month = int.Parse(parts[monthIndex], CultureInfo.InvariantCulture);
+                    var year = 2000 + int.Parse(parts[monthIndex + 1], CultureInfo.InvariantCulture);
+                    return new DateTimeOffset(year, month, 1, 0, 0, 0, MeterTimeOffset).EndOfMonth();
+                }
+            case ArchiveType.Year:
+                {
+                    var year = 2000 + int.Parse(parts[^1], CultureInfo.InvariantCulture);
+                    return new DateTimeOffset(year, 1, 1, 0, 0, 0, MeterTimeOffset).EndOfYear();
+                }
+            default:
+                throw new ArgumentOutOfRangeException(nameof(archiveType), archiveType, null);
+        }
+    }
+
     public virtual async Task<bool> Connect()
     {
         try

@@ -77,6 +77,25 @@ public interface IReader : IDisposable
         ushort ago, string func, params string[] args);
 
     /// <summary>
+    /// <see cref="GetEndOfPeriod"/> qaytargan sana qatorini davr oxiridagi vaqtni parse qilish.
+    /// Sana formati har modelda farq qiladi, shuning uchun parse qoidalari o'z reader turida.
+    /// </summary>
+    /// <param name="date"><see cref="GetEndOfPeriod"/> qaytargan sana qatori</param>
+    /// <param name="archiveType">Arxiv turi</param>
+    /// <returns>Davr oxiridagi vaqt (hisoblagich vaqt mintaqasida, UTC+5)</returns>
+    DateTimeOffset ParseArchiveTimestamp(string date, ArchiveType archiveType);
+
+    /// <summary>
+    /// Yuklama profilining bir yozuvdagi davri (daqiqalarda)
+    /// </summary>
+    int LoadProfilePeriodInMinutes { get; }
+
+    /// <summary>
+    /// Bitta so'rovda o'qiladigan yuklama profili yozuvlari soni
+    /// </summary>
+    int LoadProfileCountPerRequest { get; }
+
+    /// <summary>
     /// Arhiv yozuvlari sanalarini o'qish
     /// </summary>
     /// <param name="func">Funksiya. Bu yerda LST01, LST02, LST03, LST04 kabi funksiyalarni ishlatish
