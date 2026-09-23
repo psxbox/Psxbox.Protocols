@@ -28,5 +28,7 @@
         PPHAS, // Faza holati jurnali: kumulyativ recNo ni qaytaradi, PPHAS(N)
         PHASE, // Faza holati jurnali yozuvlari, PHASE(from.count)
         IDENT, // Hisoblagich identifikatori: CE30XvXX.YsZ (XX — ПО versiyasi)
+        TAVER, // Yuklama profilini o'rtalash intervali (daqiqalarda)
+        DATGR, // Kunlik profil sanalari arxivi: DATGR() yoki DATGR(dd.MM.yy) tekshiruv
     }
 }

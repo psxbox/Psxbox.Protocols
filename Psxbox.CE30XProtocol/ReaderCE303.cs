@@ -13,9 +13,32 @@ public class ReaderCE303(IStream stream,
 {
     public const string READER_TYPE = "CE303";
 
-    public override int LoadProfilePeriodInMinutes => 30;
+    /// <summary>TAVER o'qilmasa ishlatiladigan profil intervali (daqiqalarda).</summary>
+    public const int DefaultLoadProfilePeriodInMinutes = 30;
 
-    public override int LoadProfileCountPerRequest => 48;
+    /// <summary>Profil statusi: o'lchov to'liq o'tkazilgan (Y belgisi yo'q).</summary>
+    public const short ProfileStatusOk = 0;
+
+    /// <summary>Profil statusi: I — o'lchov butun intervalda o'tkazilmagan.</summary>
+    public const short ProfileStatusIntervalIncomplete = 1;
+
+    /// <summary>Profil statusi: A — o'lchov umuman qilinmagan.</summary>
+    public const short ProfileStatusNotMeasured = 2;
+
+    private int? averagingIntervalMinutes;
+    private DateOnly[]? profileDates;
+
+    /// <summary>
+    /// Profil o'rtalash intervali (daqiqalarda) — TAVER parametridan (keshlanadi).
+    /// TODO: sinxron property o'rniga asinxron qilish uchun IReader/BaseReader ni
+    /// o'zgartirish kerak — worker (`ReaderFunctions`) shu propertyni synxron o'qiydi
+    /// (CE208 dagi kabi yechim ishlatilgan).
+    /// </summary>
+    public override int LoadProfilePeriodInMinutes =>
+        averagingIntervalMinutes ?? GetAveragingIntervalAsync().GetAwaiter().GetResult();
+
+    /// <summary>Kunlik profil yozuvlari soni = 1440 / TAVER.</summary>
+    public override int LoadProfileCountPerRequest => 1440 / LoadProfilePeriodInMinutes;
 
     public virtual async Task<(double a, double b, double c)> GetCorIU()
     {
@@ -455,40 +478,175 @@ public class ReaderCE303(IStream stream,
     {
         if (logger?.IsEnabled(LogLevel.Debug) ?? false)
         {
-            logger.LogDebug("Getting load profiles {func}, Date: {date}, Device date: {index}", func, lastReadedDate, deviceDateTime);
+            logger.LogDebug("Getting load profiles {func}, Date: {date}, Device date: {deviceDate}",
+                func, lastReadedDate, deviceDateTime);
         }
-
-        var fromRecord = (short)(lastReadedDate.Hour * 2 + (lastReadedDate.Minute / LoadProfilePeriodInMinutes) + 1);
-        int recCount = LoadProfileCountPerRequest - (fromRecord - 1);
-        var daysAgo = (int)(deviceDateTime.StartOfDay() - lastReadedDate.StartOfDay()).TotalDays;
 
         if (lastReadedDate > deviceDateTime)
         {
             throw new Exception("Oxirgi o'qilgan vaqt qurilma vaqtidan katta");
         }
 
+        // DATGR — o'tgan kunlar uchun sana mavjudligini tekshiramiz (jonli kun istisno:
+        // u hali DATGR ga tushmagan bo'lishi mumkin). Sana bo'lmasa ERR18 uzatiladi —
+        // worker shu bo'yicha kunni o'tkazib yuboradi (GRAPE so'rovi ketmaydi).
+        var profileDate = DateOnly.FromDateTime(lastReadedDate.Date);
+        if (profileDate < DateOnly.FromDateTime(deviceDateTime.Date) && !await HasProfileDateAsync(profileDate))
+        {
+            throw new IecQueryException($"ERR18: {profileDate:dd.MM.yy} kuni DATGR da mavjud emas");
+        }
+
+        var interval = await GetAveragingIntervalAsync();
+        var recordsPerDay = 1440 / interval;
+
+        var fromRecord = (short)((lastReadedDate.Hour * 60 + lastReadedDate.Minute) / interval + 1);
+        int recCount = recordsPerDay - (fromRecord - 1);
+        var daysAgo = (int)(deviceDateTime.StartOfDay() - lastReadedDate.StartOfDay()).TotalDays;
+
         if (daysAgo == 0)
         {
             TimeSpan timeSpan = deviceDateTime - lastReadedDate;
-            recCount = (int)timeSpan.TotalMinutes / LoadProfilePeriodInMinutes;
+            recCount = (int)timeSpan.TotalMinutes / interval;
         }
-        if (recCount > LoadProfileCountPerRequest) recCount = LoadProfileCountPerRequest;
+        if (recCount > recordsPerDay) recCount = recordsPerDay;
 
-        var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], FormatLoadProfileParams(lastReadedDate, fromRecord, recCount));
-        string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
+        var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX],
+            FormatLoadProfileParams(lastReadedDate, fromRecord, recCount));
+        string[] values = CommonIEC61107.ParseResponseValues(responceStr)
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .ToArray();
 
         List<(DateTimeOffset dateTime, double value, short status)> data = [];
 
         for (int i = 0; i < values.Length; i++)
         {
-            var value = double.Parse(values[i], CultureInfo.InvariantCulture);
-            var status = (short)0; // Assuming status is not provided in the response
             var recordDateTime = GetRecordDateTime(lastReadedDate, fromRecord, i);
 
-            data.Add((recordDateTime, value, status));
+            try
+            {
+                var (value, status) = ParseProfileRecord(values[i]);
+                data.Add((recordDateTime, value, status));
+            }
+            catch (Exception ex)
+            {
+                // Bitta buzilgan yozuv butun o'qishni yiqmasligi kerak
+                logger?.LogError(ex, "Error parsing load profile record: {item}", values[i]);
+            }
         }
 
         return data;
+    }
+
+    /// <summary>
+    /// Profil yozuvini parse qiladi (RE: "GRAPD (XX.XX,Y)", Y ixtiyoriy).
+    /// Formatlar: "73.56381", "73.56381A", "73.56381,A", "3.017;I".
+    /// Y belgisi: A — o'lchov qilinmagan (2), I — o'lchov intervalda to'liq
+    /// o'tkazilmagan (1), yo'q/noma'lum — 0.
+    /// </summary>
+    public static (double value, short status) ParseProfileRecord(string record)
+    {
+        var trimmed = record.Trim();
+        if (trimmed.Length == 0)
+        {
+            throw new FormatException("Bo'sh profil yozuvi");
+        }
+
+        var status = ProfileStatusOk;
+        var valuePart = trimmed;
+
+        // Oxirgi belgi harf bo'lsa — status bayrog'i (RE bo'yicha Y belgisi)
+        var last = char.ToUpperInvariant(trimmed[^1]);
+        if (char.IsLetter(last))
+        {
+            status = last switch
+            {
+                'A' => ProfileStatusNotMeasured,
+                'I' => ProfileStatusIntervalIncomplete,
+                _ => ProfileStatusOk,
+            };
+            valuePart = trimmed[..^1].Trim().TrimEnd(',', ';');
+        }
+
+        var value = double.Parse(valuePart, NumberStyles.Float, CultureInfo.InvariantCulture);
+        return (value, status);
+    }
+
+    /// <summary>
+    /// TAVER — yuklama profilini o'rtalash intervalini o'qiydi (daqiqalarda, keshlanadi).
+    /// O'qib bo'lmasa <see cref="DefaultLoadProfilePeriodInMinutes"/> qaytariladi.
+    /// </summary>
+    protected virtual async Task<int> GetAveragingIntervalAsync()
+    {
+        if (averagingIntervalMinutes is int cached) return cached;
+
+        var interval = DefaultLoadProfilePeriodInMinutes;
+        try
+        {
+            var responceStr = await SendAndGet(CE30XCommand.R1, CE303Function.TAVER.ToString(),
+                [CommonIEC61107.ETX]);
+            var value = CommonIEC61107.ParseResponseValues(responceStr).FirstOrDefault();
+            interval = int.Parse(value ?? string.Empty, CultureInfo.InvariantCulture);
+            if (interval <= 0 || interval > 1440)
+            {
+                throw new FormatException($"TAVER qabul qilib bo'lmadi: {interval}");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "TAVER o'qilmadi, interval {interval} daqiqa deb olinadi",
+                DefaultLoadProfilePeriodInMinutes);
+            interval = DefaultLoadProfilePeriodInMinutes;
+        }
+
+        averagingIntervalMinutes = interval;
+        logger?.LogDebug("TAVER = {interval} min, kunlik yozuvlar = {records}", interval, 1440 / interval);
+        return interval;
+    }
+
+    /// <summary>
+    /// DATGR — kunlik profil sanalari arxivi (keshlanadi).
+    /// `forceRefresh: true` keshni majburan yangilaydi (stale kesh himoyasi uchun).
+    /// </summary>
+    protected virtual async Task<IReadOnlyList<DateOnly>> GetProfileDatesAsync(bool forceRefresh = false)
+    {
+        if (profileDates is not null && !forceRefresh) return profileDates;
+
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE303Function.DATGR.ToString(),
+            [CommonIEC61107.ETX]);
+        var values = CommonIEC61107.ParseResponseValues(responceStr)
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .ToArray();
+
+        var dates = new List<DateOnly>(values.Length);
+        foreach (var item in values.SelectMany(v => v.Split(',',
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)))
+        {
+            if (item is "00.00.00" or "00-00-00") continue; // to'ldirilmagan slot
+
+            try
+            {
+                dates.Add(DateOnly.ParseExact(item.Replace('-', '.'), "dd.MM.yy", CultureInfo.InvariantCulture));
+            }
+            catch (Exception ex)
+            {
+                logger?.LogWarning(ex, "DATGR sanasini o'qib bo'lmadi: {item}", item);
+            }
+        }
+
+        profileDates = dates.ToArray();
+        return profileDates;
+    }
+
+    /// <summary>
+    /// DATGR da sana bormi. Keshda topilmasa — bir marta majburan yangilab qayta
+    /// tekshiradi (stale kesh himoyasi).
+    /// </summary>
+    protected virtual async Task<bool> HasProfileDateAsync(DateOnly date)
+    {
+        var dates = await GetProfileDatesAsync();
+        if (dates.Contains(date)) return true;
+
+        return (await GetProfileDatesAsync(forceRefresh: true)).Contains(date);
     }
 
     protected virtual string FormatLoadProfileParams(DateTimeOffset date, int fromRecord, int count)
