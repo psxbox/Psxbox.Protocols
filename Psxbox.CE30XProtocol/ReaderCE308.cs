@@ -13,8 +13,23 @@ public class ReaderCE308(IStream stream,
 {
     public const string READER_TYPE = "CE308";
     private Dictionary<ArchiveType, List<DateOnly>> archiveTimesCache = new();
-    public override int LoadProfilePeriodInMinutes => 30;
-    public override int LoadProfileCountPerRequest => 48;
+    private List<DateOnly>? profileDatesCache;
+    private int? averagingIntervalMinutes;
+
+    /// <summary>PROFI o'qilmasa ishlatiladigan profil intervali (daqiqalarda).</summary>
+    public const int DefaultLoadProfilePeriodInMinutes = 30;
+
+    /// <summary>
+    /// Profil o'rtalash intervali (daqiqalarda) — PROFI() dan (HEX, keshlanadi).
+    /// TODO: sinxron property o'rniga asinxron qilish uchun IReader/BaseReader ni
+    /// o'zgartirish kerak — worker (`ReaderFunctions`) shu propertyni synxron o'qiydi
+    /// (CE208/CE303 dagi kabi yechim ishlatilgan).
+    /// </summary>
+    public override int LoadProfilePeriodInMinutes =>
+        averagingIntervalMinutes ?? GetProfileIntervalAsync().GetAwaiter().GetResult();
+
+    /// <summary>Kunlik profil yozuvlari soni = 1440 / PROFI.</summary>
+    public override int LoadProfileCountPerRequest => 1440 / LoadProfilePeriodInMinutes;
 
     public async Task<DateTimeOffset> GetWatch()
     {
@@ -131,6 +146,14 @@ public class ReaderCE308(IStream stream,
 
             if (indexOfRequestedDate == -1)
             {
+                // Stale kesh himoyasi: bir marta majburan yangilab qayta ko'ramiz
+                var refreshedTimes = await GetListOfArchiveTimes(archiveTimesFunc);
+                archiveTimesCache[archiveType] = ParseArchiveTimes(refreshedTimes, archiveType);
+                indexOfRequestedDate = archiveTimesCache[archiveType].IndexOf(requestedDate);
+            }
+
+            if (indexOfRequestedDate == -1)
+            {
                 logger?.LogWarning("Requested date {requestedDate} is not available in archive times for {func}", requestedDate, func);
                 return (string.Empty, default, default, default, default, default);
             }
@@ -191,13 +214,35 @@ public class ReaderCE308(IStream stream,
 
     protected virtual DateOnly ParseArchiveTime(string archiveTimeStr, ArchiveType archiveType)
     {
-        return archiveType switch
+        // Hujjat formatlari: LST01 "dd.mm.yy", LST02 "bb.mm.yy" (bb = hisob-kun,
+        // 0 = oy oxiri), LST03 "bb.00.yy". Maydonlar nuqta bilan ajratilgan holda
+        // parse qilinadi ("0.09.25", "00.09.25", "15.09.25" — hammasi qabul qilinadi):
+        // oy/yil identifikatorida hisob-kun e'tiborga olinmaydi, kalit sifatida
+        // oy/yil boshi ishlatiladi (GetRequestDate bilan mos keladi).
+        var parts = archiveTimeStr.Split('.');
+        if (parts.Length != 3) return default;
+        if (!int.TryParse(parts[0], NumberStyles.None, CultureInfo.InvariantCulture, out var first)
+            || !int.TryParse(parts[1], NumberStyles.None, CultureInfo.InvariantCulture, out var second)
+            || !int.TryParse(parts[2], NumberStyles.None, CultureInfo.InvariantCulture, out var twoDigitYear))
         {
-            ArchiveType.Day => DateOnly.TryParseExact(archiveTimeStr, "dd.MM.yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var dayDate) ? dayDate : default,
-            ArchiveType.Month => DateOnly.TryParseExact(archiveTimeStr, "00.MM.yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var monthDate) ? monthDate : default,
-            ArchiveType.Year => DateOnly.TryParseExact(archiveTimeStr, "00.00.yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var yearDate) ? yearDate : default,
-            _ => DateOnly.TryParseExact(archiveTimeStr, "dd.MM.yy", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) ? date : default,
-        };
+            return default;
+        }
+
+        var year = 2000 + twoDigitYear;
+        try
+        {
+            return archiveType switch
+            {
+                ArchiveType.Day => new DateOnly(year, second, first),
+                ArchiveType.Month => new DateOnly(year, second, 1),
+                ArchiveType.Year => new DateOnly(year, 1, 1),
+                _ => default,
+            };
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return default;
+        }
     }
 
     private ArchiveType GetArchiveType(string func)
@@ -234,26 +279,41 @@ public class ReaderCE308(IStream stream,
     {
         logger?.LogDebug("Getting load profiles {func}. Days ago: {ago}", func, daysAgo);
 
+        // VPR i — fiksatsiya indeksi (0 = joriy sutka); fiksatsiyalar tushib qolganda
+        // indeks siljiydi — LST04 orqali aniqlanadi, topilmasa eski xulq saqlanadi.
+        var profileIndex = (int)daysAgo;
+        try
+        {
+            profileIndex = await ResolveProfileFixationIndexAsync(GetRequestDate(ArchiveType.Day, daysAgo));
+        }
+        catch (IecQueryException ex)
+        {
+            logger?.LogWarning(ex, "Profil sanasi topilmadi, {daysAgo} indeks ishlatiladi", daysAgo);
+        }
+
         int recCount = LoadProfileCountPerRequest - (fromRecord - 1);
 
-        var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], daysAgo.ToString(),
+        var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], profileIndex.ToString(),
             fromRecord.ToString(), recCount.ToString());
         string[] values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
 
         List<(double, short)> data = [];
 
-        string[] dateAndValues = values[0].Split(',');
-        string date = dateAndValues[0];
-        var datetime = new DateTimeOffset(DateOnly.ParseExact(date, "dd.MM.yy", CultureInfo.InvariantCulture), TimeOnly.MinValue, TimeSpan.Zero);
-        data.Add((double.Parse(dateAndValues[1], CultureInfo.InvariantCulture), short.Parse(dateAndValues[2])));
-
-        for (int i = 0; i < values[1..].Length; i++)
+        // Birinchi qator "dd.mm.yy,X.X,hex", qolganlari "X.X,hex" — oxirgi ikki maydon
+        // bir xil: qiymat va status belgisi (uStatRec_TypeDef, HEX).
+        string date = values.Length > 0 ? values[0].Split(',')[0] : string.Empty;
+        foreach (var item in values)
         {
-            string? item = values[1..][i];
             var splitted = item.Split(',');
-            var recordDateTime = GetRecordDateTime(datetime, fromRecord, i);
-
-            data.Add((double.Parse(splitted[0], CultureInfo.InvariantCulture), short.Parse(splitted[1])));
+            try
+            {
+                data.Add((double.Parse(splitted[^2], CultureInfo.InvariantCulture),
+                    ParseProfileStatus(splitted[^1])));
+            }
+            catch (Exception ex)
+            {
+                logger?.LogError(ex, "Error parsing load profile record: {item}", item);
+            }
         }
 
         return (date, data);
@@ -264,48 +324,72 @@ public class ReaderCE308(IStream stream,
     {
         if (logger?.IsEnabled(LogLevel.Debug) ?? false)
         {
-            logger.LogDebug("Getting load profiles {func}, Date: {date}, Device date: {index}", func, lastReadedDate, deviceDateTime);
+            logger.LogDebug("Getting load profiles {func}, Date: {date}, Device date: {deviceDate}",
+                func, lastReadedDate, deviceDateTime);
         }
-
-        var fromRecord = (short)(lastReadedDate.Hour * 2 + (lastReadedDate.Minute / LoadProfilePeriodInMinutes) + 1);
-        int recCount = LoadProfileCountPerRequest - (fromRecord - 1);
-        var daysAgo = (int)(deviceDateTime.StartOfDay() - lastReadedDate.StartOfDay()).TotalDays;
 
         if (lastReadedDate > deviceDateTime)
         {
             throw new Exception("Oxirgi o'qilgan vaqt qurilma vaqtidan katta");
         }
 
+        // VPR i — fiksatsiya indeksi (0 = joriy sutka). Kunlik fiksatsiyalar
+        // tushib qolganda (hisoblagich o'chiq) indeks siljiydi — LST04 orqali
+        // aniqlanadi. Joriy sutka doimo 0; o'tgan kun topilmasa ERR18 uzatiladi
+        // (worker shu bo'yicha kunni o'tkazib yuboradi).
+        var profileDate = DateOnly.FromDateTime(lastReadedDate.Date);
+        var isCurrentDay = profileDate == DateOnly.FromDateTime(deviceDateTime.Date);
+        var profileIndex = isCurrentDay
+            ? 0
+            : await ResolveProfileFixationIndexAsync(profileDate);
+
+        var interval = await GetProfileIntervalAsync();
+        var recordsPerDay = 1440 / interval;
+
+        var fromRecord = (short)((lastReadedDate.Hour * 60 + lastReadedDate.Minute) / interval + 1);
+        int recCount = recordsPerDay - (fromRecord - 1);
+        var daysAgo = (int)(deviceDateTime.StartOfDay() - lastReadedDate.StartOfDay()).TotalDays;
+
         if (daysAgo == 0)
         {
             TimeSpan timeSpan = deviceDateTime - lastReadedDate;
-            recCount = (int)timeSpan.TotalMinutes / LoadProfilePeriodInMinutes;
+            recCount = (int)timeSpan.TotalMinutes / interval;
         }
-        if (recCount > LoadProfileCountPerRequest) recCount = LoadProfileCountPerRequest;
+        if (recCount > recordsPerDay) recCount = recordsPerDay;
 
-        var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], daysAgo.ToString(),
+        var responceStr = await SendAndGet(CE30XCommand.R1, func, [CommonIEC61107.ETX], profileIndex.ToString(),
             fromRecord.ToString(), recCount.ToString());
         string[] values = [.. CommonIEC61107.ParseResponseValues(responceStr)];
 
         List<(DateTimeOffset dateTime, double value, short status)> data = [];
+        if (values.Length == 0) return data;
 
-        string[] dateAndValues = values[0].Split(',');
-        string dateFromDevice = dateAndValues[0];
-        var datetimeFromDevice = new DateTimeOffset(DateOnly.ParseExact(dateFromDevice, "dd.MM.yy", CultureInfo.InvariantCulture), TimeOnly.MinValue, TimeSpan.Zero);
-
-        data.Add((GetRecordDateTime(datetimeFromDevice, fromRecord, 0),
-            double.Parse(dateAndValues[1], CultureInfo.InvariantCulture),
-            short.Parse(dateAndValues[2])));
-
-        for (int i = 0; i < values[1..].Length; i++)
+        // Birinchi qator "dd.mm.yy,X.X,hex" (sana identifikatori bilan),
+        // qolganlari "X.X,hex". Oxirgi ikki maydon doim qiymat va status.
+        var dayStart = lastReadedDate.StartOfDay();
+        var first = values[0].Split(',');
+        if (first.Length >= 3 && DateOnly.TryParseExact(first[0], "dd.MM.yy",
+                CultureInfo.InvariantCulture, DateTimeStyles.None, out var dateFromDevice))
         {
-            string? item = values[1..][i];
-            var splitted = item.Split(',');
-            var value = double.Parse(splitted[0], CultureInfo.InvariantCulture);
-            var status = short.Parse(splitted[1]);
-            var recordDateTime = GetRecordDateTime(datetimeFromDevice, fromRecord, i + 1);
+            dayStart = new DateTimeOffset(dateFromDevice.ToDateTime(TimeOnly.MinValue), TimeSpan.FromHours(5));
+        }
 
-            data.Add((recordDateTime, value, status));
+        for (int i = 0; i < values.Length; i++)
+        {
+            var splitted = values[i].Split(',');
+            var recordDateTime = GetRecordDateTime(dayStart, fromRecord, i);
+
+            try
+            {
+                var value = double.Parse(splitted[^2], CultureInfo.InvariantCulture);
+                var status = ParseProfileStatus(splitted[^1]);
+                data.Add((recordDateTime, value, status));
+            }
+            catch (Exception ex)
+            {
+                // Bitta buzilgan yozuv butun o'qishni yiqmasligi kerak
+                logger?.LogError(ex, "Error parsing load profile record: {item}", values[i]);
+            }
         }
 
         return data;
@@ -325,10 +409,18 @@ public class ReaderCE308(IStream stream,
             {
                 string[] splitted = item.Split(',');
                 long recNo = long.Parse(splitted[0]);
-                DateOnly date = DateOnly.ParseExact(splitted[1], "dd.MM.yy");
-                TimeOnly time = TimeOnly.Parse(splitted[2]);
+                if (recNo == 0)
+                {
+                    // Bo'sh jurnal belgisi (hujjat: "При отсутствии записей в журнале
+                    // будет выдана одна запись с номером 0") — jimgina o'tkaziladi
+                    logger?.LogDebug("Bo'sh jurnal yozuvi (rec=0) o'tkazildi: {func}", func);
+                    continue;
+                }
+
+                DateOnly date = DateOnly.ParseExact(splitted[1], "dd.MM.yy", CultureInfo.InvariantCulture);
+                TimeOnly time = TimeOnly.Parse(splitted[2], CultureInfo.InvariantCulture);
                 DateTimeOffset dateTime = new(date.ToDateTime(time), TimeSpan.FromHours(5));
-                byte status = byte.Parse(splitted[3]);
+                byte status = ParseJournalStatus(splitted[3]);
                 result.Add((recNo, dateTime, status));
             }
             catch (System.Exception ex)
@@ -337,6 +429,98 @@ public class ReaderCE308(IStream stream,
             }
         }
         return result;
+    }
+
+    /// <summary>
+    /// LNE jurnali yozuvidagi hodisa kodini (hex8, HEX) parse qiladi.
+    /// LNE04: 0=вкл/1=выкл; LNE05: факт полного пропадания; LNE22: 0=OK, 1=плохое,
+    /// 2=отсутствует (rasmiy МЭК protokol tavsifi, eNameLogEvent_TypeDef).
+    /// </summary>
+    public static byte ParseJournalStatus(string hexStatus)
+    {
+        var value = Convert.ToInt32(hexStatus.Trim(), 16);
+        if (value is < 0 or > byte.MaxValue)
+        {
+            throw new FormatException($"Hodisa kodi byte chegarasidan tashqari: {hexStatus}");
+        }
+        return (byte)value;
+    }
+
+    /// <summary>
+    /// Profil status belgisini (uStatRec_TypeDef, HEX) parse qiladi.
+    /// Bitlar ma'nosi: <see cref="ProfileStatusFlags"/>.
+    /// </summary>
+    public static short ParseProfileStatus(string hexStatus) =>
+        (short)(byte)Convert.ToInt32(hexStatus.Trim(), 16);
+
+    /// <summary>
+    /// PROFI — profil o'rtalash intervalini o'qiydi (daqiqalarda, HEX; keshlanadi).
+    /// Format (hujjat): "PROFI(ht:h1,...)" — ht = interval (hex), qolganlari profil
+    /// identifikatorlari. O'qib bo'lmasa <see cref="DefaultLoadProfilePeriodInMinutes"/>.
+    /// </summary>
+    protected virtual async Task<int> GetProfileIntervalAsync()
+    {
+        if (averagingIntervalMinutes is int cached) return cached;
+
+        var interval = DefaultLoadProfilePeriodInMinutes;
+        try
+        {
+            var responceStr = await SendAndGet(CE30XCommand.R1, CE308Function.PROFI.ToString(),
+                [CommonIEC61107.ETX]);
+            var value = CommonIEC61107.ParseResponseValues(responceStr).FirstOrDefault() ?? string.Empty;
+            interval = Convert.ToInt32(value.Split(':')[0].Trim(), 16);
+            if (interval <= 0 || interval > 1440)
+            {
+                throw new FormatException($"PROFI qabul qilib bo'lmadi: {value}");
+            }
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "PROFI o'qilmadi, interval {interval} daqiqa deb olinadi",
+                DefaultLoadProfilePeriodInMinutes);
+            interval = DefaultLoadProfilePeriodInMinutes;
+        }
+
+        averagingIntervalMinutes = interval;
+        logger?.LogDebug("PROFI = {interval} min, kunlik yozuvlar = {records}", interval, 1440 / interval);
+        return interval;
+    }
+
+    /// <summary>
+    /// LST04 — kunlik profil sanalari (keshlanadi). LST04[0] = joriy sutka
+    /// identifikatori, ro'yxatdagi indeks = fiksatsiya indeksi (VPR i).
+    /// `forceRefresh: true` keshni majburan yangilaydi (stale kesh himoyasi).
+    /// </summary>
+    protected virtual async Task<List<DateOnly>> GetProfileDatesAsync(bool forceRefresh = false)
+    {
+        if (profileDatesCache is not null && !forceRefresh) return profileDatesCache;
+
+        var times = await GetListOfArchiveTimes(CE308Function.LST04.ToString());
+        profileDatesCache = ParseArchiveTimes(times, ArchiveType.Day);
+        return profileDatesCache;
+    }
+
+    /// <summary>
+    /// Profil sanasi uchun fiksatsiya indeksini (VPR so'rovidagi i) aniqlaydi.
+    /// Keshda topilmasa — bir marta majburan yangilanadi; baribir topilmasa
+    /// IecQueryException("ERR18 ...") — worker shu bo'yicha kunni o'tkazib yuboradi.
+    /// </summary>
+    protected virtual async Task<int> ResolveProfileFixationIndexAsync(DateOnly profileDate)
+    {
+        var dates = await GetProfileDatesAsync();
+        var index = dates.IndexOf(profileDate);
+
+        if (index < 0)
+        {
+            dates = await GetProfileDatesAsync(forceRefresh: true);
+            index = dates.IndexOf(profileDate);
+        }
+
+        if (index < 0)
+        {
+            throw new IecQueryException($"ERR18: {profileDate:dd.MM.yy} kuni LST04 da profil mavjud emas");
+        }
+        return index;
     }
 
     public string[] GetPowerStatusFunctions() => [

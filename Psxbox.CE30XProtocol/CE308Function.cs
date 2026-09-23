@@ -5,7 +5,7 @@
         LST01, // kun oxiri arxivi sanalari
         LST02, // oy oxiri arxivi sanalari
         LST03, // yil oxiri arxivi sanalari
-        LST04, // yarim soatlik arxivi sanalari
+        LST04, // kunlik profil arxivi sanalari (LST04[0] = joriy sutka)
         EMD01, // kun oxiri A+
         EMD02, // kun oxiri A-
         EMD03, // kun oxiri R+
@@ -31,8 +31,9 @@
         VPR02, // 2 profil nagruzka
         VPR03, // 3 profil nagruzka
         VPR04, // 4 profil nagruzka
-        LNE04, // Poyavleniye i propadaniye silovogo pitaniya schetchika
-        LNE05, // Polnoe propadaniya pitaniya
-        LNE22, // Sostoyaniye litevogo elementa pitaniya
+        LNE04, // LOG_PowerSupply — Silovoe pitanie: 0=vkl / 1=vykl
+        LNE05, // LOG_FaultSupply — Polnoe propadanie pitaniya
+        LNE22, // LOG_StatBattery — Sostoyaniye litevogo elementa: 0=OK, 1=plohoe, 2=otsutstvuyet
+        PROFI, // profil o'rtalash intervali (hex) + 6 ta profil identifikatori
     }
 }
