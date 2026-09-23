@@ -2,6 +2,7 @@
 using Psxbox.Streams;
 using Psxbox.Utils.Helpers;
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace Psxbox.CE30XProtocol;
 
@@ -192,17 +193,80 @@ public class ReaderCE303(IStream stream,
     }
 
     /// <summary>
-    /// CE303 PHASE jurnali sig'imi — rasmiy RE ИНЕС.411152.081 bo'yicha
-    /// "Журнал состояния фаз (50 записей)". AdminTools yozuvi (v8/v10) ham tasdiqlaydi.
+    /// PHASE jurnali sig'imi — firmware v12 dan past versiyalar uchun
+    /// (CE303 RE ИНЕС.411152.081: "Журнал состояния фаз (50 записей)").
     /// </summary>
     public const int DefaultPowerStatusCapacity = 50;
 
     /// <summary>
-    /// Joriy reader uchun PHASE jurnali sig'imi. Sig'im model/firmware versiyasiga
-    /// bog'liq bo'lishi mumkin (masalan ba'zi CE301 RE larida 200 yozuv) — shuning uchun
-    /// meroschi sinflar uni override qilishi mumkin.
+    /// PHASE jurnali sig'imi — firmware v12 va undan yuqorisi uchun (200 yozuv).
     /// </summary>
-    protected virtual int PowerStatusCapacity => DefaultPowerStatusCapacity;
+    public const int ExtendedPowerStatusCapacity = 200;
+
+    /// <summary>
+    /// Shu va undan yuqori firmware versiyasida jurnal sig'imi 200 yozuvga
+    /// kengaytirilgan (CE301 va CE303 uchun bir xil).
+    /// </summary>
+    private const int ExtendedPowerStatusVersion = 12;
+
+    private int? powerStatusCapacity;
+
+    /// <summary>
+    /// Firmware versiyasiga qarab PHASE jurnali sig'imi (v12+ => 200, aks holda 50).
+    /// IDENT o'qib bo'lmasa <see cref="DefaultPowerStatusCapacity"/> qaytariladi.
+    /// Natija keshlanadi.
+    /// </summary>
+    protected virtual async Task<int> GetPowerStatusCapacityAsync()
+    {
+        if (powerStatusCapacity.HasValue) return powerStatusCapacity.Value;
+
+        var capacity = DefaultPowerStatusCapacity;
+        try
+        {
+            var version = await GetFirmwareVersionAsync();
+            capacity = version >= ExtendedPowerStatusVersion
+                ? ExtendedPowerStatusCapacity
+                : DefaultPowerStatusCapacity;
+        }
+        catch (Exception ex)
+        {
+            logger?.LogWarning(ex, "IDENT o'qilmadi, jurnal sig'imi {capacity} deb olinadi",
+                DefaultPowerStatusCapacity);
+        }
+
+        powerStatusCapacity = capacity;
+        return capacity;
+    }
+
+    /// <summary>
+    /// IDENT parametridan firmware (ПО) versiyasini o'qiydi.
+    /// IDENT formati (RE): "CE303vXX.YsZ" / "CE30XvXX.YsZ", XX — ПО versiyasi.
+    /// </summary>
+    public virtual async Task<int> GetFirmwareVersionAsync()
+    {
+        logger?.LogDebug("Getting IDENT");
+        var responceStr = await SendAndGet(CE30XCommand.R1, CE303Function.IDENT.ToString(),
+            [CommonIEC61107.ETX]);
+        var values = CommonIEC61107.ParseResponseValues(responceStr).ToArray();
+        if (values.Length == 0 || string.IsNullOrWhiteSpace(values[0]))
+        {
+            throw new IecQueryException($"IDENT qiymatsiz javob berdi: {responceStr}");
+        }
+        return ParseFirmwareVersion(values[0]);
+    }
+
+    /// <summary>
+    /// IDENT qiymatidan ПО versiyasini ajratadi (masalan "CE303v10.2s3" -> 10).
+    /// </summary>
+    public static int ParseFirmwareVersion(string ident)
+    {
+        var match = Regex.Match(ident, @"v(\d+)");
+        if (!match.Success)
+        {
+            throw new FormatException($"IDENT formatini o'qib bo'lmadi: {ident}");
+        }
+        return int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture);
+    }
 
     /// <summary>
     /// Bitta PHASE so'rovda olinadigan yozuvlar soni (AdminTools namunasi: 10).
@@ -213,12 +277,13 @@ public class ReaderCE303(IStream stream,
     /// CE303 faza holati jurnalini (PHASE) o'qiydi.
     ///
     /// AdminTools yozuvidan qayta terilgan almashuv:
+    ///   0) IDENT() -> CE30XvXX.YsZ  — ПО versiyasi (jurnal sig'imi: v12+ => 200, aks holda 50);
     ///   1) PPHAS() - PPHAS(N)  — kumulyativ recNo (eng yangi yozuvning tartib raqami);
     ///   2) PHASE(from.count) - STX PHASE(dd-MM-yy-HH-mm-SS)...ETX — sahifalar.
     ///
-    /// Jurnal ayrlanma (sig'im PowerStatusCapacity), xom recNo monoton emas
-    /// (50 - 1 sakraydi), shuning uchun xizmatdagi Readed{func} dedup filtri
-    /// (last > recNo) uchun kumulyativ recNo sintezlanadi: u vaqt bo'yicha
+    /// Jurnal ayrlanma (sig'im GetPowerStatusCapacityAsync orqali aniqlanadi), xom recNo
+    /// monoton emas (sig'imgacha sakraydi), shuning uchun xizmatdagi Readed{func} dedup
+    /// filtri (last > recNo) uchun kumulyativ recNo sintezlanadi: u vaqt bo'yicha
     /// qat'iy o'sadi.
     /// </summary>
     public virtual async Task<IEnumerable<(long recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
@@ -229,6 +294,9 @@ public class ReaderCE303(IStream stream,
         {
             throw new ArgumentException($"Unknown function: {func}", nameof(func));
         }
+
+        // 0) Jurnal sig'imi — IDENT versiyasidan (birinchi chaqiruvda keshlanadi)
+        var capacity = await GetPowerStatusCapacityAsync();
 
         // 1) Kumulyativ recNo ni olish: PPHAS() -> PPHAS(N)
         var initStr = await SendAndGet(CE30XCommand.R1, CE303Function.PPHAS.ToString(),
@@ -241,7 +309,7 @@ public class ReaderCE303(IStream stream,
             return [];
         }
 
-        var total = (int)Math.Min(cum, PowerStatusCapacity);
+        var total = (int)Math.Min(cum, capacity);
         var result = new List<(long recNo, DateTimeOffset dateTime, byte status)>(total);
 
         long cumPos = cum;   // joriy sahifaning eng yangi yozuvi (kumulyativ recNo)
@@ -252,7 +320,7 @@ public class ReaderCE303(IStream stream,
             // Ayrlanma chegarada so'rov bo'laklanishi shart (AdminTools ham
             // chegarada 10 ta o'rniga kamroq yozuv so'raydi):
             // take = min(sahifa, qolgan, hiRecNo) — from hech qachon 1 dan past tushmaydi.
-            var hiRecNo = (int)(cumPos % PowerStatusCapacity) + 1;
+            var hiRecNo = (int)(cumPos % capacity) + 1;
             var take = Math.Min(PowerStatusPageSize, Math.Min(remaining, hiRecNo));
             var loRecNo = hiRecNo - take + 1;
             var firstCum = cumPos - take + 1;

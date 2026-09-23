@@ -41,15 +41,8 @@ public class ReaderCE301(IStream stream,
             CE303Function.GRAPE.ToString(),
         ];
 
-    // CE301 RE larida ham "Журнал состояния фаз" (PHASE/PPHAS) mavjud, ammo sig'imi
-    // versiyaga qarab farq qiladi (CE301 v11 RE — 50 yozuv, yangiroq CE301 RE — 200 yozuv).
-    // Sig'im o'lchovdan tasdiqlanmaguncha CE301 uchun o'chirilgan holat saqlanadi
-    // (noto'g'ri slot manzillab, jimgina xato ma'lumot olishdan himoya).
-    public override Task<IEnumerable<(long recNo, DateTimeOffset dateTime, byte status)>> GetPowerStatuses(string func)
-    {
-        throw new NotImplementedException("GetPowerStatuses is not supported in CE301 protocol.");
-    }
-
-    public override string[] GetPowerStatusFunctions() => [];
+    // CE301 ham faza holati jurnalini qo'llab-quvvatlaydi (RE: "Журнал состояния фаз");
+    // sig'im firmware versiyasiga qarab 50 yoki 200 — GetPowerStatusCapacityAsync
+    // uni IDENT orqali avtomatik aniqlaydi, shuning uchun alohida override shart emas.
 
 }

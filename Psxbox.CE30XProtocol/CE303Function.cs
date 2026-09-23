@@ -27,5 +27,6 @@
         TAN_f, // Tangent phi: sum, A, B, C
         PPHAS, // Faza holati jurnali: kumulyativ recNo ni qaytaradi, PPHAS(N)
         PHASE, // Faza holati jurnali yozuvlari, PHASE(from.count)
+        IDENT, // Hisoblagich identifikatori: CE30XvXX.YsZ (XX — ПО versiyasi)
     }
 }
