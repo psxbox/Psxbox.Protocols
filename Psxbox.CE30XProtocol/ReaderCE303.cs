@@ -29,6 +29,12 @@ public class ReaderCE303(IStream stream,
     private DateOnly[]? profileDates;
 
     /// <summary>
+    /// DATGR sanalari formatlari. Qurilma nol'siz ham qaytaradi ("15.8.26"),
+    /// ba'zan to'ldirilgan holda ("15.08.26") — ikkalasi ham qabul qilinadi.
+    /// </summary>
+    private static readonly string[] ProfileDateFormats = ["dd.MM.yy", "d.M.yy"];
+
+    /// <summary>
     /// Profil o'rtalash intervali (daqiqalarda) — TAVER parametridan (keshlanadi).
     /// TODO: sinxron property o'rniga asinxron qilish uchun IReader/BaseReader ni
     /// o'zgartirish kerak — worker (`ReaderFunctions`) shu propertyni synxron o'qiydi
@@ -623,13 +629,14 @@ public class ReaderCE303(IStream stream,
         {
             if (item is "00.00.00" or "00-00-00") continue; // to'ldirilmagan slot
 
-            try
+            if (DateOnly.TryParseExact(item.Replace('-', '.'), ProfileDateFormats,
+                    CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate))
             {
-                dates.Add(DateOnly.ParseExact(item.Replace('-', '.'), "dd.MM.yy", CultureInfo.InvariantCulture));
+                dates.Add(parsedDate);
             }
-            catch (Exception ex)
+            else
             {
-                logger?.LogWarning(ex, "DATGR sanasini o'qib bo'lmadi: {item}", item);
+                logger?.LogWarning("DATGR sanasini o'qib bo'lmadi: {item}", item);
             }
         }
 
