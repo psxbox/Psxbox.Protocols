@@ -108,7 +108,7 @@ namespace Gurux.DLMS.Reader
                     if (args.SystemTitle == null)
                     {
                         string path = GetPath(args.SecuritySuite, args.CertificateType, "Certificates", args.SystemTitle);
-                        GXx509Certificate pk = GXx509Certificate.Search(path, args.SystemTitle);
+                        GXx509Certificate pk = GXx509Certificate.Search(path, args.CertificateType, args.SystemTitle)?[0];
                         args.PublicKey = pk.PublicKey;
                         Console.WriteLine("Server public key:" + pk.SerialNumber);
                     }
