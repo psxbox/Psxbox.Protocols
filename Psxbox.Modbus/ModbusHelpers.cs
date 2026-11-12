@@ -52,7 +52,12 @@ public static class ModbusHelpers
             0x01 => "Illegal function",
             0x02 => "Illegal data address",
             0x03 => "Illegal data value",
-            0x04 => "Slave device failed to respond",
+            0x04 => "Slave device failure",
+            0x05 => "Acknowledge (long operation in progress)",
+            0x06 => "Slave device busy",
+            0x08 => "Memory parity error",
+            0x0A => "Gateway path unavailable",
+            0x0B => "Gateway target device failed to respond",
             _ => $"Unknown error code {errCode}"
         };
     }
