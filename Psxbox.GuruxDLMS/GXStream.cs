@@ -44,12 +44,14 @@ namespace Psxbox.GuruxDLMS
 
         public object SyncRoot => null;
 
+#pragma warning disable CS0067
         public event ReceivedEventHandler OnReceived;
         public event Gurux.Common.ErrorEventHandler OnError;
         public event MediaStateChangeEventHandler OnMediaStateChange;
         public event ClientConnectedEventHandler OnClientConnected;
         public event ClientDisconnectedEventHandler OnClientDisconnected;
         public event TraceEventHandler OnTrace;
+#pragma warning restore CS0067
 
         public void Close()
         {
