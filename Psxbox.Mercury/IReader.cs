@@ -3,7 +3,8 @@ namespace Psxbox.Mercury;
 
 public interface IReader
 {
-    Task<bool> Open(byte address, byte level, string password, bool passwordIsHex = false);
+    /// <param name="attempts">So'rovni qayta yuborishlar soni (standart 3). Javob bermaydigan qurilma uchun kamaytiriladi.</param>
+    Task<bool> Open(byte address, byte level, string password, bool passwordIsHex = false, int attempts = 3);
     Task Close(byte address);
     Task<(float ab, float ac, float bc)> GetAngleOfUU(byte address);
     Task<(float a, float b, float c)> GetVoltages(byte address);

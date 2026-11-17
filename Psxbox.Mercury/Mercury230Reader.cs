@@ -5,13 +5,13 @@ namespace Psxbox.Mercury;
 
 public class Mercury230Reader(IStream stream, ILogger? logger = null) : IReader
 {
-    public async Task<bool> Open(byte address, byte level, string password, bool passwordIsHex = false)
+    public async Task<bool> Open(byte address, byte level, string password, bool passwordIsHex = false, int attempts = 3)
     {
         logger?.LogDebug("Open channel with address: {address}, level: {level}", address, level);
 
         var openPayload = QueryBuilder.GetOpenChannelBytes(address, level, password, passwordIsHex);
         byte[] response = [];
-        for (int i = 0; i < 3; i++)
+        for (int i = 0; i < Math.Max(1, attempts); i++)
         {
             try
             {
