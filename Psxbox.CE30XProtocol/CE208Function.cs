@@ -3,6 +3,8 @@ namespace Psxbox.CE30XProtocol;
 public enum CE208Function
 {
     WATCH, // soat va sana
+    TIME_, // joriy vaqt (W1): (чч:мм:сс)
+    DATE_, // joriy sana (W1): (нн.дд.мм.гг), нн - hafta kuni (00-Yak ... 06-Shan)
     FREQU, // chastota, Hz
     CURRE, // tok kuchi, A
     VOLTA, // kuchlanish, V

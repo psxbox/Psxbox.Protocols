@@ -25,6 +25,13 @@ public interface IReader : IDisposable
     Task<DateTimeOffset> GetWatch();
 
     /// <summary>
+    /// Hisoblagich soati va sanasini o'rnatish (W1 yozish komandasi).
+    /// Qiymat hisoblagich vaqt mintaqasiga (UTC+5) o'tkazib yoziladi.
+    /// </summary>
+    /// <param name="dateTime">O'rnatiladigan vaqt</param>
+    Task SetWatch(DateTimeOffset dateTime);
+
+    /// <summary>
     /// Elektr linyasini joriy chastotasini o'qish
     /// </summary>
     /// <returns></returns>

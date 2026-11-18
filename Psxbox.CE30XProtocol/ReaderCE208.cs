@@ -53,6 +53,30 @@ public class ReaderCE208(IStream stream,
         return new DateTimeOffset(date.ToDateTime(time), TimeSpan.FromHours(5));
     }
 
+    /// <summary>
+    /// Soat va sanani o'rnatadi: avval DATE_, keyin TIME_ (ikkalasi ham W1).
+    /// Sana birinchi yoziladi — aks holda vaqt yozilgandan keyin hisoblagich yarim tunni
+    /// kesib o'tsa, eski sana bilan yangi kun boshlanib, keyin noto'g'ri sana ustidan yozilardi.
+    /// </summary>
+    public override async Task SetWatch(DateTimeOffset dateTime)
+    {
+        var meterTime = dateTime.ToOffset(MeterTimeOffset);
+        logger?.LogDebug("Setting watch: {dateTime}", meterTime);
+
+        await SendWrite(CE208Function.DATE_.ToString(), FormatWatchDate(meterTime));
+        await SendWrite(CE208Function.TIME_.ToString(), FormatWatchTime(meterTime));
+    }
+
+    /// <summary>
+    /// DATE_ parametri: нн.дд.мм.гг, нн — hafta kuni (00 - yakshanba ... 06 - shanba).
+    /// </summary>
+    public static string FormatWatchDate(DateTimeOffset meterTime) =>
+        $"{(int)meterTime.DayOfWeek:D2}.{meterTime.ToString("dd.MM.yy", CultureInfo.InvariantCulture)}";
+
+    /// <summary>TIME_ parametri: чч:мм:сс (24 soatlik).</summary>
+    public static string FormatWatchTime(DateTimeOffset meterTime) =>
+        meterTime.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+
     public async Task<double> GetFrequency()
     {
         logger?.LogDebug("Getting frequency");

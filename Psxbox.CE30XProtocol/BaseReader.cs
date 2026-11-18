@@ -151,6 +151,12 @@ public abstract class BaseReader(IStream stream, string id, string password = "7
     public virtual Task<bool> GetRelayState() =>
         throw new NotSupportedException("Rele boshqaruvi bu hisoblagichda qo'llab-quvvatlanmaydi");
 
+    /// <summary>
+    /// Hisoblagich soatini o'rnatish. Hozircha faqat CE208 da override qilingan.
+    /// </summary>
+    public virtual Task SetWatch(DateTimeOffset dateTime) =>
+        throw new NotImplementedException($"SetWatch {GetType().Name} uchun hali implement qilinmagan");
+
     protected async Task SendWrite(string func, params string[] paramArg)
     {
         var maxRetries = 2;
